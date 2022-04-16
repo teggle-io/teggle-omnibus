@@ -39,6 +39,8 @@ pub use crate::serde::{from_binary, from_slice, to_binary, to_vec};
 pub use crate::storage::MemoryStorage;
 pub use crate::traits::{Api, Extern, Querier, QuerierResult, ReadonlyStorage, Storage};
 pub use crate::types::{BlockInfo, ContractInfo, Empty, Env, MessageInfo};
+#[cfg(target_arch = "wasm32", feature = "public-api")]
+pub use crate::imports::{storage_set, storage_get};
 
 // Exposed in wasm build only
 

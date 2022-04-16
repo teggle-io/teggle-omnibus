@@ -1,10 +1,10 @@
 [package]
-name = "secret-cosmwasm-storage"
+name = "teggle-omnibus-storage"
 version = "0.10.0"
-authors = ["Ethan Frey <ethanfrey@users.noreply.github.com>", "SCRT Labs <info@scrtlabs.com>"]
+authors = ["David Radunz <david@vimturian.ltd>", "Ethan Frey <ethanfrey@users.noreply.github.com>", "SCRT Labs <info@scrtlabs.com>"]
 edition = "2018"
-description = "CosmWasm library with useful helpers for Storage patterns"
-repository = "https://github.com/scrtlabs/SecretNetwork/tree/master/cosmwasm/packages/storage"
+description = "WASM2 library with useful helpers for Storage patterns"
+repository = "https://github.com/teggle-io/teggle-omnibus/tree/master/packages/storage"
 license = "Apache-2.0"
 readme = "README.md"
 

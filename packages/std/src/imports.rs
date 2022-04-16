@@ -89,21 +89,39 @@ impl ReadonlyStorage for ExternalStorage {
     }
 }
 
+fn _storage_set(key: &[u8], value: &[u8]) {
+    // keep the boxes in scope, so we free it at the end (don't cast to pointers same line as build_region)
+    let key = build_region(key);
+    let key_ptr = &*key as *const Region as u32;
+    let mut value = build_region(value);
+    let value_ptr = &mut *value as *mut Region as u32;
+    unsafe { db_write(key_ptr, value_ptr) };
+}
+
+#[cfg(feature = "public-api")]
+pub fn storage_set(key: &[u8], value: &[u8]) {
+    _storage_set(key, value)
+}
+
+fn _storage_get(key: &[u8]) {
+    // keep the boxes in scope, so we free it at the end (don't cast to pointers same line as build_region)
+    let key = build_region(key);
+    let key_ptr = &*key as *const Region as u32;
+    unsafe { db_remove(key_ptr) };
+}
+
+#[cfg(feature = "public-api")]
+pub fn storage_get(key: &[u8]) {
+    _storage_get(key)
+}
+
 impl Storage for ExternalStorage {
     fn set(&mut self, key: &[u8], value: &[u8]) {
-        // keep the boxes in scope, so we free it at the end (don't cast to pointers same line as build_region)
-        let key = build_region(key);
-        let key_ptr = &*key as *const Region as u32;
-        let mut value = build_region(value);
-        let value_ptr = &mut *value as *mut Region as u32;
-        unsafe { db_write(key_ptr, value_ptr) };
+        _storage_set(key, value);
     }
 
     fn remove(&mut self, key: &[u8]) {
-        // keep the boxes in scope, so we free it at the end (don't cast to pointers same line as build_region)
-        let key = build_region(key);
-        let key_ptr = &*key as *const Region as u32;
-        unsafe { db_remove(key_ptr) };
+        _storage_get(key);
     }
 }
 

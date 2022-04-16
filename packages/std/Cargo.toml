@@ -1,10 +1,10 @@
 [package]
-name = "secret-cosmwasm-std"
+name = "teggle-omnibus-std"
 version = "0.10.0"
-authors = ["Ethan Frey <ethanfrey@users.noreply.github.com>", "SCRT Labs <info@scrtlabs.com>"]
+authors = ["David Radunz <david@vimturian.ltd>", "Ethan Frey <ethanfrey@users.noreply.github.com>", "SCRT Labs <info@scrtlabs.com>"]
 edition = "2018"
-description = "Standard library for Wasm based smart contracts on Cosmos blockchains"
-repository = "https://github.com/scrtlabs/SecretNetwork/tree/master/cosmwasm/packages/std"
+description = "Standard library for Wasm based smart contracts on Cosmos blockchains (forked for Omnibus)"
+repository = "https://github.com/teggle-io/teggle-omnibus/tree/master/packages/std"
 license = "Apache-2.0"
 readme = "README.md"
 
@@ -31,6 +31,8 @@ backtraces = ["snafu/backtraces"]
 # and loading the contract for execution will fail if this is used a HW mode
 # enclave. This is done in order to provent leaking secrets in production.
 debug-print = []
+# Exposes the internals as a public API enabling embedding.
+public-api = []
 
 [dependencies]
 base64 = "0.11.0"
@@ -38,6 +40,3 @@ serde-json-wasm = { version = "0.2.1" }
 schemars = "0.7"
 serde = { version = "1.0.117", default-features = false, features = ["derive", "alloc"] }
 snafu = { version = "0.6.6" }
-
-[dev-dependencies]
-cosmwasm-schema = { path = "../schema" }

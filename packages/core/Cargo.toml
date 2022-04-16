@@ -1,0 +1,29 @@
+[package]
+name = "teggle-omnibus-core"
+version = "0.10.0"
+authors = ["David Radunz <david@vimturian.ltd>", "Ethan Frey <ethanfrey@users.noreply.github.com>", "SCRT Labs <info@scrtlabs.com>"]
+edition = "2018"
+description = "Core library for building Omnibus smart contracts"
+repository = "https://github.com/teggle-io/teggle-omnibus/tree/master/packages/core"
+license = "Apache-2.0"
+readme = "README.md"
+
+[features]
+default = []
+# for quicker tests, cargo test --lib
+# for more explicit tests, cargo test --features=backtraces
+backtraces = ["omnibus-std/backtraces"]
+debug-print = ["omnibus-std/debug-print"]
+
+[dependencies]
+serde-json-wasm = { version = "0.2.1" }
+serde = { version = "1.0.117", default-features = false, features = ["derive", "alloc"] }
+snafu = { version = "0.6.6" }
+derive_more = "0.99"
+libflate = "1"
+omnibus-std = { version = "0.10", package = "teggle-omnibus-std", features = ["public-api"], path = "../std" }
+
+[dependencies.rhai]
+version = "1.6.1"
+features = [ "only_i32", "no_float", "no_position", "no_closure", "unchecked", "serde", "internals" ]
+path = "../../../rhai"
