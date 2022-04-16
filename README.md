@@ -1,4 +1,4 @@
-# teggle-wasm2
+# teggle-omnibus
 
 This repo provides a useful functionality to build smart contracts that are compatible with a Teggle smart contract based runtime, Omnibus.
 
