@@ -1,6 +1,6 @@
 # teggle-omnibus
 
-This repo provides a useful functionality to build smart contracts that are compatible with a Teggle smart contract based runtime, Omnibus.
+This repo provides a foundation to build Ombibus based smart contracts, which are able to themselves run Cortex modules.
 
 ## License
 
