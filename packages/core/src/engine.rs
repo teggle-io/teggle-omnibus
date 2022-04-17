@@ -36,7 +36,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     pub fn register_handlers(&mut self) {
         let label = self.label.clone();
         self.rh_engine.on_print(move |text| {
-            debug_print!("RHAI[info][{}]: {}", label, text);
+            debug_print!("RHAI[info ][{}]: {}", label, text);
         });
 
         let label = self.label.clone();
