@@ -1,17 +1,17 @@
-use cosmwasm_std::{debug_print, new_storage, Storage};
+use cosmwasm_std::{Extern, Api, Querier, Storage, make_dependencies, debug_print};
 use rhai::Engine;
 
-pub struct OmnibusEngine<S: Storage> {
+pub struct OmnibusEngine<S: Storage, A: Api, Q: Querier> {
     pub rh_engine: Engine,
-    pub storage: S,
+    pub deps: Extern<S, A, Q>,
 }
 
-impl <S: Storage> OmnibusEngine<S> {
+impl <S: Storage, A: Api, Q: Querier> OmnibusEngine<S, A, Q> {
     pub fn new() -> Self {
-        let storage: S = new_storage();
+        let deps = make_dependencies();
         let mut engine = Self {
             rh_engine: Engine::new(),
-            storage: storage
+            deps: make_dependencies()
         };
 
         engine.init();

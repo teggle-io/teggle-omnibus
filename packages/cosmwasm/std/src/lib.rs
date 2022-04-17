@@ -54,11 +54,6 @@ pub use crate::exports::{do_handle, do_init, do_migrate, do_query};
 #[cfg(target_arch = "wasm32")]
 pub use crate::imports::{ExternalApi, ExternalQuerier, ExternalStorage};
 
-#[cfg(all(feature = "public-api", target_arch = "wasm32"))]
-pub use crate::imports::{new_storage};
-#[cfg(all(feature = "public-api", not(target_arch = "wasm32")))]
-pub use crate::storage::{new_storage};
-
 // Exposed for testing only
 // Both unit tests and integration tests are compiled to native code, so everything in here does not need to compile to Wasm.
 

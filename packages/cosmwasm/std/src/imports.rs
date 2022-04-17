@@ -36,11 +36,6 @@ extern "C" {
     fn query_chain(request: u32) -> u32;
 }
 
-#[cfg(target_arch = "wasm32")]
-pub fn new_storage() -> impl Storage {
-    ExternalStorage::new()
-}
-
 /// A stateless convenience wrapper around database imports provided by the VM.
 /// This cannot be cloned as it would not copy any data. If you need to clone this, it indicates a flaw in your logic.
 pub struct ExternalStorage {}

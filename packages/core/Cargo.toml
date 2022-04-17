@@ -21,7 +21,7 @@ serde = { version = "1.0.117", default-features = false, features = ["derive", "
 snafu = { version = "0.6.6" }
 derive_more = "0.99"
 libflate = "1"
-cosmwasm-std = { version = "0.10", package = "teggle-cosmwasm-std", features = ["public-api"], path = "../cosmwasm/std" }
+cosmwasm-std = { version = "0.10", package = "teggle-cosmwasm-std", features = ["internals"], path = "../cosmwasm/std" }
 
 [dependencies.rhai]
 version = "1.6.1"
