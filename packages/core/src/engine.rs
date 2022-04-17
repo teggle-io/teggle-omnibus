@@ -1,17 +1,20 @@
-use cosmwasm_std::{Extern, Api, Querier, Storage, make_dependencies, debug_print};
+use std::cell::RefCell;
+use std::rc::Rc;
+use cosmwasm_std::{Api, debug_print, Extern, Querier, Storage};
 use rhai::Engine;
 
-pub struct OmnibusEngine<S: Storage, A: Api, Q: Querier> {
-    pub rh_engine: Engine,
-    pub deps: Extern<S, A, Q>,
+pub struct OmnibusEngine<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> {
+    rh_engine: Engine,
+    deps: Rc<RefCell<Extern<S, A, Q>>>,
 }
 
-impl <S: Storage, A: Api, Q: Querier> OmnibusEngine<S, A, Q> {
-    pub fn new() -> Self {
-        let deps = make_dependencies();
+impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine<S, A, Q> {
+    pub fn new(
+        deps: Rc<RefCell<Extern<S, A, Q>>>,
+    ) -> Self {
         let mut engine = Self {
             rh_engine: Engine::new(),
-            deps: make_dependencies()
+            deps
         };
 
         engine.init();
@@ -45,8 +48,10 @@ impl <S: Storage, A: Api, Q: Querier> OmnibusEngine<S, A, Q> {
     }
 
     pub fn register_functions(&mut self) {
-        self.rh_engine.register_fn("do_store", move |key: &str, val: &str| {
-            //controller.borrow_mut().deps.storage.set(key.as_bytes(), val.as_bytes());
+        let deps = self.deps.clone();
+
+        self.rh_engine.register_fn("storage_set", move |key: &str, val: &str| {
+            RefCell::borrow_mut(&*deps).storage.set(key.as_bytes(), val.as_bytes());
         });
     }
 }

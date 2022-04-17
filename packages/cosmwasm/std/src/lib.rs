@@ -1,4 +1,5 @@
 // Exposed on all platforms
+extern crate cfg_if;
 
 mod addresses;
 mod coins;

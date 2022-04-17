@@ -5,8 +5,11 @@
 //!
 //! do_init and do_wrapper should be wrapped with a extern "C" entry point
 //! including the contract-specific init/handle function pointer.
+use std::cell::RefCell;
 use std::fmt;
+use std::rc::Rc;
 use std::vec::Vec;
+use cfg_if::cfg_if;
 
 use schemars::JsonSchema;
 use serde::{de::DeserializeOwned, Serialize};
@@ -46,8 +49,15 @@ extern "C" fn deallocate(pointer: u32) {
 
 /// do_init should be wrapped in an external "C" export, containing a contract-specific function as arg
 pub fn do_init<T, U>(
+    #[cfg(not(feature = "rc-deps"))]
     init_fn: &dyn Fn(
         &mut Extern<ExternalStorage, ExternalApi, ExternalQuerier>,
+        Env,
+        T,
+    ) -> InitResult<U>,
+    #[cfg(feature = "rc-deps")]
+    init_fn: &dyn Fn(
+        Rc<RefCell<Extern<ExternalStorage, ExternalApi, ExternalQuerier>>>,
         Env,
         T,
     ) -> InitResult<U>,
@@ -65,8 +75,15 @@ where
 
 /// do_handle should be wrapped in an external "C" export, containing a contract-specific function as arg
 pub fn do_handle<T, U>(
+    #[cfg(not(feature = "rc-deps"))]
     handle_fn: &dyn Fn(
         &mut Extern<ExternalStorage, ExternalApi, ExternalQuerier>,
+        Env,
+        T,
+    ) -> InitResult<U>,
+    #[cfg(feature = "rc-deps")]
+    handle_fn: &dyn Fn(
+        Rc<RefCell<Extern<ExternalStorage, ExternalApi, ExternalQuerier>>>,
         Env,
         T,
     ) -> HandleResult<U>,
@@ -98,8 +115,15 @@ pub fn do_query<T: DeserializeOwned + JsonSchema>(
 
 /// do_migrate should be wrapped in an external "C" export, containing a contract-specific function as arg
 pub fn do_migrate<T, U>(
+    #[cfg(not(feature = "rc-deps"))]
     migrate_fn: &dyn Fn(
         &mut Extern<ExternalStorage, ExternalApi, ExternalQuerier>,
+        Env,
+        T,
+    ) -> MigrateResult<U>,
+    #[cfg(feature = "rc-deps")]
+    migrate_fn: &dyn Fn(
+        Rc<RefCell<Extern<ExternalStorage, ExternalApi, ExternalQuerier>>>,
         Env,
         T,
     ) -> MigrateResult<U>,
@@ -117,8 +141,15 @@ where
 }
 
 fn _do_init<T, U>(
+    #[cfg(not(feature = "rc-deps"))]
     init_fn: &dyn Fn(
         &mut Extern<ExternalStorage, ExternalApi, ExternalQuerier>,
+        Env,
+        T,
+    ) -> InitResult<U>,
+    #[cfg(feature = "rc-deps")]
+    init_fn: &dyn Fn(
+        Rc<RefCell<Extern<ExternalStorage, ExternalApi, ExternalQuerier>>>,
         Env,
         T,
     ) -> InitResult<U>,
@@ -133,13 +164,28 @@ where
     let msg: Vec<u8> = unsafe { consume_region(msg_ptr) };
     let env: Env = from_slice(&env)?;
     let msg: T = from_slice(&msg)?;
-    let mut deps = make_dependencies();
-    init_fn(&mut deps, env, msg)
+
+    cfg_if! {
+        if #[cfg(not(feature = "rc-deps"))] {
+            let mut deps = make_dependencies();
+            init_fn(&mut deps, env, msg)
+        } else {
+            let deps = make_dependencies();
+            init_fn(Rc::new(RefCell::new(deps)), env, msg)
+        }
+    }
 }
 
 fn _do_handle<T, U>(
+    #[cfg(not(feature = "rc-deps"))]
     handle_fn: &dyn Fn(
         &mut Extern<ExternalStorage, ExternalApi, ExternalQuerier>,
+        Env,
+        T,
+    ) -> InitResult<U>,
+    #[cfg(feature = "rc-deps")]
+    handle_fn: &dyn Fn(
+        Rc<RefCell<Extern<ExternalStorage, ExternalApi, ExternalQuerier>>>,
         Env,
         T,
     ) -> HandleResult<U>,
@@ -155,8 +201,16 @@ where
 
     let env: Env = from_slice(&env)?;
     let msg: T = from_slice(&msg)?;
-    let mut deps = make_dependencies();
-    handle_fn(&mut deps, env, msg)
+
+    cfg_if! {
+        if #[cfg(not(feature = "rc-deps"))] {
+            let mut deps = make_dependencies();
+            handle_fn(&mut deps, env, msg)
+        } else {
+            let deps = make_dependencies();
+            handle_fn(Rc::new(RefCell::new(deps)), env, msg)
+        }
+    }
 }
 
 fn _do_query<T: DeserializeOwned + JsonSchema>(
@@ -174,8 +228,15 @@ fn _do_query<T: DeserializeOwned + JsonSchema>(
 }
 
 fn _do_migrate<T, U>(
+    #[cfg(not(feature = "rc-deps"))]
     migrate_fn: &dyn Fn(
         &mut Extern<ExternalStorage, ExternalApi, ExternalQuerier>,
+        Env,
+        T,
+    ) -> MigrateResult<U>,
+    #[cfg(feature = "rc-deps")]
+    migrate_fn: &dyn Fn(
+        Rc<RefCell<Extern<ExternalStorage, ExternalApi, ExternalQuerier>>>,
         Env,
         T,
     ) -> MigrateResult<U>,
@@ -190,8 +251,16 @@ where
     let msg: Vec<u8> = unsafe { consume_region(msg_ptr) };
     let env: Env = from_slice(&env)?;
     let msg: T = from_slice(&msg)?;
-    let mut deps = make_dependencies();
-    migrate_fn(&mut deps, env, msg)
+
+    cfg_if! {
+        if #[cfg(not(feature = "rc-deps"))] {
+            let mut deps = make_dependencies();
+            migrate_fn(&mut deps, env, msg)
+        } else {
+            let deps = make_dependencies();
+            migrate_fn(Rc::new(RefCell::new(deps)), env, msg)
+        }
+    }
 }
 
 /// Makes all bridges to external dependencies (i.e. Wasm imports) that are injected by the VM
