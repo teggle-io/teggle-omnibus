@@ -12,8 +12,8 @@ readme = "README.md"
 default = []
 # for quicker tests, cargo test --lib
 # for more explicit tests, cargo test --features=backtraces
-backtraces = ["omnibus-std/backtraces"]
-debug-print = ["omnibus-std/debug-print"]
+backtraces = ["cosmwasm-std/backtraces"]
+debug-print = ["cosmwasm-std/debug-print"]
 
 [dependencies]
 serde-json-wasm = { version = "0.2.1" }
@@ -21,7 +21,7 @@ serde = { version = "1.0.117", default-features = false, features = ["derive", "
 snafu = { version = "0.6.6" }
 derive_more = "0.99"
 libflate = "1"
-omnibus-std = { version = "0.10", package = "teggle-omnibus-std", features = ["public-api"], path = "../std" }
+cosmwasm-std = { version = "0.10", package = "teggle-cosmwasm-std", features = ["public-api"], path = "../cosmwasm/std" }
 
 [dependencies.rhai]
 version = "1.6.1"

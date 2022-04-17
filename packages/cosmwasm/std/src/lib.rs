@@ -39,8 +39,6 @@ pub use crate::serde::{from_binary, from_slice, to_binary, to_vec};
 pub use crate::storage::MemoryStorage;
 pub use crate::traits::{Api, Extern, Querier, QuerierResult, ReadonlyStorage, Storage};
 pub use crate::types::{BlockInfo, ContractInfo, Empty, Env, MessageInfo};
-#[cfg(target_arch = "wasm32", feature = "public-api")]
-pub use crate::imports::{storage_set, storage_get};
 
 // Exposed in wasm build only
 
@@ -55,6 +53,11 @@ mod memory; // Used by exports and imports only. This assumes pointers are 32 bi
 pub use crate::exports::{do_handle, do_init, do_migrate, do_query};
 #[cfg(target_arch = "wasm32")]
 pub use crate::imports::{ExternalApi, ExternalQuerier, ExternalStorage};
+
+#[cfg(all(feature = "public-api", target_arch = "wasm32"))]
+pub use crate::imports::{new_storage};
+#[cfg(all(feature = "public-api", not(target_arch = "wasm32")))]
+pub use crate::storage::{new_storage};
 
 // Exposed for testing only
 // Both unit tests and integration tests are compiled to native code, so everything in here does not need to compile to Wasm.

@@ -1,14 +1,17 @@
-use omnibus_std::{Api, debug_print, Extern, Querier, Storage};
+use cosmwasm_std::{debug_print, new_storage, Storage};
 use rhai::Engine;
 
-pub struct OmnibusEngine  {
-    rhai_engine: Engine,
+pub struct OmnibusEngine<S: Storage> {
+    pub rh_engine: Engine,
+    pub storage: S,
 }
 
-impl OmnibusEngine{
+impl <S: Storage> OmnibusEngine<S> {
     pub fn new() -> Self {
+        let storage: S = new_storage();
         let mut engine = Self {
-            rhai_engine: Engine::new(),
+            rh_engine: Engine::new(),
+            storage: storage
         };
 
         engine.init();
@@ -22,12 +25,12 @@ impl OmnibusEngine{
 
     pub fn register_handlers(&mut self) {
         // TODO: Clean up.
-        self.engine.on_print(|text| {
+        self.rh_engine.on_print(|text| {
             println!("CORTEX[]: {}", text);
             debug_print!("CORTEX[]: {}", text);
         });
 
-        self.engine.on_debug(|text, source, pos| {
+        self.rh_engine.on_debug(|text, source, pos| {
             if let Some(source) = source {
                 println!("{} @ {:?} | {}", source, pos, text);
                 debug_print!("{} @ {:?} | {}", source, pos, text);
@@ -42,7 +45,7 @@ impl OmnibusEngine{
     }
 
     pub fn register_functions(&mut self) {
-        self.engine.register_fn("do_store", move |key: &str, val: &str| {
+        self.rh_engine.register_fn("do_store", move |key: &str, val: &str| {
             //controller.borrow_mut().deps.storage.set(key.as_bytes(), val.as_bytes());
         });
     }
