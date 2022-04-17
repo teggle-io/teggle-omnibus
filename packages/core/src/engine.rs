@@ -53,9 +53,13 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 
     pub fn register_functions(&mut self) {
         let deps = self.deps.clone();
-
         self.rh_engine.register_fn("storage_set", move |key: &str, val: &str| {
             RefCell::borrow_mut(&*deps).storage.set(key.as_bytes(), val.as_bytes());
+        });
+
+        let deps = self.deps.clone();
+        self.rh_engine.register_fn("storage_set", move |key: &str, val: &[u8]| {
+            RefCell::borrow_mut(&*deps).storage.set(key.as_bytes(), val);
         });
     }
 
@@ -72,6 +76,8 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     }
 
     pub fn load_script(&mut self, script: &str) -> Result<(), StdError> {
+        // TODO: https://rhai.rs/book/rust/modules/self-contained.html
+        // Switch to the above, possibly zip or gzip a directory of files resolve from that.
         let ast: AST = self.rh_engine.compile(script).map_err(|err| {
             return StdError::GenericErr {
                 msg: format!("failed compile rhai script: {err}"),

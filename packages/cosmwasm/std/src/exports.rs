@@ -102,8 +102,14 @@ where
 
 /// do_query should be wrapped in an external "C" export, containing a contract-specific function as arg
 pub fn do_query<T: DeserializeOwned + JsonSchema>(
+    #[cfg(not(feature = "rc-deps"))]
     query_fn: &dyn Fn(
         &Extern<ExternalStorage, ExternalApi, ExternalQuerier>,
+        T,
+    ) -> StdResult<QueryResponse>,
+    #[cfg(feature = "rc-deps")]
+    query_fn: &dyn Fn(
+        Rc<RefCell<Extern<ExternalStorage, ExternalApi, ExternalQuerier>>>,
         T,
     ) -> StdResult<QueryResponse>,
     msg_ptr: u32,
@@ -214,8 +220,14 @@ where
 }
 
 fn _do_query<T: DeserializeOwned + JsonSchema>(
+    #[cfg(not(feature = "rc-deps"))]
     query_fn: &dyn Fn(
         &Extern<ExternalStorage, ExternalApi, ExternalQuerier>,
+        T,
+    ) -> StdResult<QueryResponse>,
+    #[cfg(feature = "rc-deps")]
+    query_fn: &dyn Fn(
+        Rc<RefCell<Extern<ExternalStorage, ExternalApi, ExternalQuerier>>>,
         T,
     ) -> StdResult<QueryResponse>,
     msg_ptr: *mut Region,
@@ -224,7 +236,14 @@ fn _do_query<T: DeserializeOwned + JsonSchema>(
 
     let msg: T = from_slice(&msg)?;
     let deps = make_dependencies();
-    query_fn(&deps, msg)
+
+    cfg_if! {
+        if #[cfg(not(feature = "rc-deps"))] {
+            query_fn(&deps, msg)
+        } else {
+            query_fn(Rc::new(RefCell::new(deps)), msg)
+        }
+    }
 }
 
 fn _do_migrate<T, U>(
