@@ -1,10 +1,13 @@
+extern crate zip_module_resolver;
+
 use std::cell::RefCell;
-use std::io::{Cursor, Read};
+use std::io::{Read};
 use std::rc::Rc;
 
 use cosmwasm_std::{Api, debug_print, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage};
-use libflate::gzip::Decoder;
+use flate2::read::GzDecoder;
 use rhai::{AST, Engine, Scope};
+use zip_module_resolver::ZipModuleResolver;
 
 pub struct OmnibusEngine<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> {
     rh_engine: Engine,
@@ -80,12 +83,27 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         // Switch to the above, possibly zip or gzip a directory of files resolve from that.
         let ast: AST = self.rh_engine.compile(script).map_err(|err| {
             return StdError::GenericErr {
-                msg: format!("failed compile rhai script: {err}"),
+                msg: format!("failed to compile rhai script: {err}"),
                 backtrace: None,
             };
         })?;
 
         self.ast = Some(ast);
+
+        Ok(())
+    }
+
+    pub fn load_core(&mut self, bytes: Vec<u8>) -> Result<(), StdError> {
+        let mut resolver = ZipModuleResolver::new();
+        resolver.load_from_bytes(bytes).map_err(|err| {
+            return StdError::GenericErr {
+                msg: format!("failed to load core: {err}"),
+                backtrace: None,
+            };
+        })?;
+
+        // TODO: Enhance, use a collection.
+        self.rh_engine.set_module_resolver(resolver);
 
         Ok(())
     }
@@ -120,9 +138,8 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 // Compression
 
 fn decompress_bytes(compressed_bytes: &[u8]) -> Result<Vec<u8>, StdError> {
-    let mut decoder = Decoder::new(
-        Cursor::new(compressed_bytes)).unwrap();
-    let mut buf = Vec::new();
+    let mut decoder = GzDecoder::new(compressed_bytes);
+    let mut buf: Vec<u8> = Vec::new();
 
     let res = decoder.read_to_end(&mut buf).map_err(|err| {
         return StdError::GenericErr {

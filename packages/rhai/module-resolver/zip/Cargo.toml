@@ -1,0 +1,23 @@
+[package]
+name = "teggle-rhai-module-resolver-zip"
+version = "0.1.0"
+authors = ["David Radunz <david@vimturian.ltd>"]
+edition = "2018"
+description = "Rhai module resolver for ZIP files"
+repository = "https://github.com/teggle-io/teggle-omnibus/tree/master/packages/rhai/module-resolver/zip"
+license = "Apache-2.0"
+readme = "README.md"
+
+[features]
+default = []
+
+[dependencies.zip]
+version = "0.6.2"
+default-features = false
+features = [ "deflate" ]
+
+[dependencies.rhai]
+version = "1.6.1"
+features = [ "only_i32", "no_float", "no_position", "no_closure", "unchecked", "serde", "internals" ]
+path = "../../../../../rhai"
+
