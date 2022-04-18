@@ -167,7 +167,7 @@ impl ZipModuleResolver {
     }
 
     #[must_use]
-    fn get_file_path(&self, path: &str, source_path: Option<&str>) -> PathBuf {
+    pub fn get_file_path(&self, path: &str, source_path: Option<&str>) -> PathBuf {
         let path = Path::new(path);
 
         let mut file_path;
@@ -188,7 +188,7 @@ impl ZipModuleResolver {
     }
 
     #[inline]
-    fn get_file(&self, file_path: PathBuf) -> ResolverResult<String> {
+    pub fn get_file(&self, file_path: PathBuf) -> ResolverResult<String> {
         if !self.loaded() {
             return Err(ResolverError::NotReady);
         }

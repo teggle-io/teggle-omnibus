@@ -7,7 +7,9 @@ use std::rc::Rc;
 use cosmwasm_std::{Api, debug_print, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage};
 use flate2::read::GzDecoder;
 use rhai::{AST, Engine, Scope};
-use zip_module_resolver::ZipModuleResolver;
+use zip_module_resolver::{ZipModuleResolver, RHAI_SCRIPT_EXTENSION};
+
+pub const MAIN_FILE: &str = "main";
 
 pub struct OmnibusEngine<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> {
     rh_engine: Engine,
@@ -102,8 +104,21 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
             };
         })?;
 
+        // TODO: This is clunky, I would like to be able to query the zip later.
+        // (handing ownership of the resolver to rhai makes it impossible without refactoring).
+
+        let main_path = resolver.get_file_path(MAIN_FILE, None);
+        let main_source = resolver.get_file(main_path)
+            .map_err(|err| {
+                return StdError::GenericErr {
+                    msg: format!("failed to load {}.{} file source: {err}", MAIN_FILE, RHAI_SCRIPT_EXTENSION),
+                    backtrace: None,
+                };
+            })?;
+
         // TODO: Enhance, use a collection.
         self.rh_engine.set_module_resolver(resolver);
+        self.load_script(main_source.as_str())?;
 
         Ok(())
     }
