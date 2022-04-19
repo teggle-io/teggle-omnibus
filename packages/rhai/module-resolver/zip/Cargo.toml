@@ -11,13 +11,10 @@ readme = "README.md"
 [features]
 default = []
 
+[dependencies]
+rhai = "1.6.1"
+
 [dependencies.zip]
 version = "0.6.2"
 default-features = false
 features = [ "deflate" ]
-
-[dependencies.rhai]
-version = "1.6.1"
-#features = [ "internals" ]
-#path = "../../../../../rhai"
-

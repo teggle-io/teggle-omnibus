@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str;
 
-use rhai::{AST, Engine, EvalAltResult, GlobalRuntimeState, Identifier, Locked, Module, ModuleResolver, Position, Scope, Shared};
+use rhai::{AST, Engine, EvalAltResult, GlobalRuntimeState, Locked, Module, ModuleResolver, Position, Scope, Shared};
 use zip::ZipArchive;
 
 use crate::result::{ResolverError, ResolverResult};
@@ -16,7 +16,7 @@ pub const RHAI_SCRIPT_EXTENSION: &str = "rhai";
 pub struct ZipModuleResolver {
     zip: RefCell<Option<ZipArchive<Cursor<Vec<u8>>>>>,
     base_path: Option<PathBuf>,
-    extension: Identifier,
+    extension: String,
     cache_enabled: bool,
 
     #[cfg(not(feature = "sync"))]
@@ -29,16 +29,16 @@ impl ZipModuleResolver {
     #[inline(always)]
     #[must_use]
     pub fn new() -> Self {
-        Self::new_with_extension(RHAI_SCRIPT_EXTENSION)
+        Self::new_with_extension(RHAI_SCRIPT_EXTENSION.to_string())
     }
 
     #[inline(always)]
     #[must_use]
-    pub fn new_with_extension(extension: impl Into<Identifier>) -> Self {
+    pub fn new_with_extension(extension: String) -> Self {
         Self {
             zip: RefCell::new(None),
             base_path: None,
-            extension: extension.into(),
+            extension: extension,
             cache_enabled: true,
             cache: BTreeMap::new().into(),
         }
@@ -48,12 +48,12 @@ impl ZipModuleResolver {
     #[must_use]
     pub fn new_with_path_and_extension(
         path: impl Into<PathBuf>,
-        extension: impl Into<Identifier>,
+        extension: String,
     ) -> Self {
         Self {
             zip: RefCell::new(None),
             base_path: Some(path.into()),
-            extension: extension.into(),
+            extension: extension,
             cache_enabled: true,
             cache: BTreeMap::new().into(),
         }
@@ -108,8 +108,8 @@ impl ZipModuleResolver {
 
     /// Set the script file extension.
     #[inline(always)]
-    pub fn set_extension(&mut self, extension: impl Into<Identifier>) -> &mut Self {
-        self.extension = extension.into();
+    pub fn set_extension(&mut self, extension: String) -> &mut Self {
+        self.extension = extension;
         self
     }
 
