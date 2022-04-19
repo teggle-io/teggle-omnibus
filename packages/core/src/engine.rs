@@ -1,13 +1,14 @@
 extern crate zip_module_resolver;
 
 use std::cell::RefCell;
-use std::io::{Read};
+use std::io::Read;
 use std::rc::Rc;
 
 use cosmwasm_std::{Api, debug_print, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage};
 use flate2::read::GzDecoder;
-use rhai::{AST, Engine, Scope};
-use zip_module_resolver::{ZipModuleResolver, RHAI_SCRIPT_EXTENSION};
+use rhai::{AST, Engine, Module, Scope, Shared};
+use rhai::packages::{BasicArrayPackage, BasicBlobPackage, BasicMapPackage, BasicMathPackage, BitFieldPackage, CorePackage, LogicPackage, MoreStringPackage, Package};
+use zip_module_resolver::{RHAI_SCRIPT_EXTENSION, ZipModuleResolver};
 
 pub const MAIN_FILE: &str = "main";
 
@@ -23,7 +24,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         deps: Rc<RefCell<Extern<S, A, Q>>>,
     ) -> Self {
         let mut engine = Self {
-            rh_engine: Engine::new(),
+            rh_engine: Engine::new_raw(),
             deps,
             ast: None,
             label: "cortex.core:v1".to_string(), // TODO:
@@ -33,12 +34,36 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         engine
     }
 
+    #[inline(always)]
     pub fn init(&mut self) {
-        self.register_handlers();
-        self.register_functions();
+        self.register_modules()
+            .register_handlers()
+            .register_functions();
     }
 
-    pub fn register_handlers(&mut self) {
+    #[inline(always)]
+    pub fn register_modules(&mut self) -> &mut Self {
+        // rhai standard
+        self.register_global_module(CorePackage::new().as_shared_module())
+            .register_global_module(BitFieldPackage::new().as_shared_module())
+            .register_global_module(LogicPackage::new().as_shared_module())
+            .register_global_module(BasicMathPackage::new().as_shared_module())
+            .register_global_module(BasicArrayPackage::new().as_shared_module())
+            .register_global_module(BasicBlobPackage::new().as_shared_module())
+            .register_global_module(BasicMapPackage::new().as_shared_module())
+            .register_global_module(MoreStringPackage::new().as_shared_module());
+
+        self
+    }
+
+    #[inline(always)]
+    pub fn register_global_module(&mut self, module: Shared<Module>) -> &mut Self {
+        self.rh_engine.register_global_module(module);
+        self
+    }
+
+    #[inline]
+    pub fn register_handlers(&mut self) -> &mut Self {
         let label = self.label.clone();
         self.rh_engine.on_print(move |text| {
             debug_print!("RHAI[info ][{}]: {}", label, text);
@@ -54,9 +79,12 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
                 debug_print!("RHAI[debug][{}]: {:?} | {}", label, pos, text);
             }
         });
+
+        self
     }
 
-    pub fn register_functions(&mut self) {
+    #[inline]
+    pub fn register_functions(&mut self) -> &mut Self {
         let deps = self.deps.clone();
         self.rh_engine.register_fn("storage_set", move |key: &str, val: &str| {
             RefCell::borrow_mut(&*deps).storage.set(key.as_bytes(), val.as_bytes());
@@ -66,8 +94,11 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         self.rh_engine.register_fn("storage_set", move |key: &str, val: &[u8]| {
             RefCell::borrow_mut(&*deps).storage.set(key.as_bytes(), val);
         });
+
+        self
     }
 
+    #[inline]
     pub fn load_script_compressed(&mut self, compressed_bytes: &[u8]) -> Result<(), StdError> {
         let b = decompress_bytes(compressed_bytes)?;
         let s = String::from_utf8(b).map_err(|err| {
@@ -80,6 +111,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         self.load_script(String::as_str(&s))
     }
 
+    #[inline]
     pub fn load_script(&mut self, script: &str) -> Result<(), StdError> {
         // TODO: https://rhai.rs/book/rust/modules/self-contained.html
         // Switch to the above, possibly zip or gzip a directory of files resolve from that.
@@ -95,6 +127,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         Ok(())
     }
 
+    #[inline]
     pub fn load_core(&mut self, bytes: Vec<u8>) -> Result<(), StdError> {
         let mut resolver = ZipModuleResolver::new();
         resolver.load_from_bytes(bytes).map_err(|err| {
@@ -123,12 +156,13 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         Ok(())
     }
 
+    #[inline]
     pub fn run_handle(&mut self, env: Env) -> StdResult<HandleResponse> {
         if self.ast.is_none() {
             return Err(StdError::GenericErr {
                 msg: format!("cannot call 'run_handle' without a compiled script"),
                 backtrace: None,
-            })
+            });
         }
 
         let ast = self.ast.clone().unwrap();
@@ -139,7 +173,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         //scope.push_constant("MY_CONST", true);
 
         let _res = self.rh_engine.call_fn(&mut scope, &ast,
-                                                 "handle", ( ) ).map_err(|err| {
+                                          "handle", ()).map_err(|err| {
             return StdError::GenericErr {
                 msg: format!("failed to run 'handle' on rhai script: {err}"),
                 backtrace: None,
@@ -152,6 +186,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 
 // Compression
 
+#[inline]
 fn decompress_bytes(compressed_bytes: &[u8]) -> Result<Vec<u8>, StdError> {
     let mut decoder = GzDecoder::new(compressed_bytes);
     let mut buf: Vec<u8> = Vec::new();

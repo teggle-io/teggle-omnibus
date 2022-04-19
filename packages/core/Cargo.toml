@@ -27,4 +27,4 @@ zip-module-resolver = { version = "0.1.0", package = "teggle-rhai-module-resolve
 [dependencies.rhai]
 version = "1.6.1"
 features = [ "only_i32", "no_float", "no_position", "no_closure", "unchecked", "serde", "internals" ]
-path = "../../../rhai"
+#path = "../../../rhai"

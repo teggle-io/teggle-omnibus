@@ -260,8 +260,10 @@ impl ZipModuleResolver {
 
         ast.set_source(path);
 
-        let m: Shared<Module> = if let Some(global) = global {
-            Module::eval_ast_as_new_raw(engine, scope, global, &ast)
+        let m: Shared<Module> = if let Some(_global) = global {
+            Module::eval_ast_as_new(scope, &ast, engine)
+            // TODO: this needs to be made public.
+            //Module::eval_ast_as_new_raw(engine, scope, global, &ast)
         } else {
             Module::eval_ast_as_new(scope, &ast, engine)
         }
