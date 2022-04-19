@@ -18,6 +18,6 @@ features = [ "deflate" ]
 
 [dependencies.rhai]
 version = "1.6.1"
-features = [ "internals" ]
+#features = [ "internals" ]
 #path = "../../../../../rhai"
 

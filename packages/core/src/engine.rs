@@ -7,8 +7,10 @@ use std::rc::Rc;
 use cosmwasm_std::{Api, debug_print, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage};
 use flate2::read::GzDecoder;
 use rhai::{AST, Engine, Module, Scope, Shared};
-use rhai::packages::{BasicArrayPackage, BasicBlobPackage, BasicMapPackage, BasicMathPackage, BitFieldPackage, CorePackage, LogicPackage, MoreStringPackage, Package};
+use rhai::packages::Package;
 use zip_module_resolver::{RHAI_SCRIPT_EXTENSION, ZipModuleResolver};
+
+use crate::rhai::packages::pkg_std::StandardPackage;
 
 pub const MAIN_FILE: &str = "main";
 
@@ -20,18 +22,26 @@ pub struct OmnibusEngine<S: 'static + Storage, A: 'static + Api, Q: 'static + Qu
 }
 
 impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine<S, A, Q> {
+    #[inline(always)]
     pub fn new(
         deps: Rc<RefCell<Extern<S, A, Q>>>,
     ) -> Self {
-        let mut engine = Self {
+        let mut engine = Self::new_raw(deps);
+
+        engine.init();
+        engine
+    }
+
+    #[inline(always)]
+    pub fn new_raw(
+        deps: Rc<RefCell<Extern<S, A, Q>>>,
+    ) -> Self {
+        Self {
             rh_engine: Engine::new_raw(),
             deps,
             ast: None,
             label: "cortex.core:v1".to_string(), // TODO:
-        };
-
-        engine.init();
-        engine
+        }
     }
 
     #[inline(always)]
@@ -43,15 +53,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 
     #[inline(always)]
     pub fn register_modules(&mut self) -> &mut Self {
-        // rhai standard
-        self.register_global_module(CorePackage::new().as_shared_module())
-            .register_global_module(BitFieldPackage::new().as_shared_module())
-            .register_global_module(LogicPackage::new().as_shared_module())
-            .register_global_module(BasicMathPackage::new().as_shared_module())
-            .register_global_module(BasicArrayPackage::new().as_shared_module())
-            .register_global_module(BasicBlobPackage::new().as_shared_module())
-            .register_global_module(BasicMapPackage::new().as_shared_module())
-            .register_global_module(MoreStringPackage::new().as_shared_module());
+        self.register_global_module(StandardPackage::new().as_shared_module());
 
         self
     }
