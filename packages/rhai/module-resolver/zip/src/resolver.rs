@@ -337,6 +337,26 @@ impl ModuleResolver for ZipModuleResolver {
     }
 }
 
+impl Clone for ZipModuleResolver {
+    fn clone(&self) -> Self {
+        return Self {
+            zip: self.zip.clone(),
+            base_path: self.base_path.clone(),
+            extension: self.extension.clone(),
+            cache_enabled: self.cache_enabled.clone(),
+            cache: self.cache.clone()
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.zip = source.zip.clone();
+        self.base_path = source.base_path.clone();
+        self.extension = source.extension.clone();
+        self.cache_enabled = source.cache_enabled.clone();
+        self.cache = source.cache.clone();
+    }
+}
+
 // Util
 // borrowed
 /// Read-only lock guard for synchronized shared object.

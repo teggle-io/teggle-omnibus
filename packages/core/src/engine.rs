@@ -152,7 +152,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
             })?;
 
         // TODO: Enhance, use a collection.
-        self.rh_engine.set_module_resolver(resolver);
+        self.rh_engine.set_module_resolver(resolver.clone());
         self.load_script(main_source.as_str())?;
 
         Ok(())
