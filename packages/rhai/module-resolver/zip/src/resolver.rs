@@ -134,7 +134,7 @@ impl ZipModuleResolver {
             return false;
         }
 
-        let file_path = self.get_file_path(path.as_ref(), source_path);
+        let file_path = self.get_file_path(path.as_ref(), source_path, None);
 
         let cache = locked_read(&self.cache);
 
@@ -159,7 +159,9 @@ impl ZipModuleResolver {
         path: impl AsRef<str>,
         source_path: Option<impl AsRef<str>>,
     ) -> Option<Shared<Module>> {
-        let file_path = self.get_file_path(path.as_ref(), source_path.as_ref().map(<_>::as_ref));
+        let file_path = self.get_file_path(path.as_ref(),
+                                           source_path.as_ref().map(<_>::as_ref),
+                                           None);
 
         locked_write(&self.cache)
             .remove_entry(&file_path)
@@ -167,7 +169,8 @@ impl ZipModuleResolver {
     }
 
     #[must_use]
-    pub fn get_file_path(&self, path: &str, source_path: Option<&str>) -> PathBuf {
+    pub fn get_file_path(&self, path: &str, source_path: Option<&str>,
+                         custom_extension: Option<String>) -> PathBuf {
         let path = Path::new(path);
 
         let mut file_path;
@@ -183,7 +186,11 @@ impl ZipModuleResolver {
             file_path = path.into();
         }
 
-        file_path.set_extension(self.extension.as_str()); // Force extension
+        if custom_extension.is_some() {
+            file_path.set_extension(custom_extension.unwrap());
+        } else {
+            file_path.set_extension(self.extension.as_str());
+        }
         file_path
     }
 
@@ -229,7 +236,7 @@ impl ZipModuleResolver {
             .and_then(|p| Path::new(p).parent().map(|p| p.to_string_lossy()));
 
         let file_path = self.get_file_path(path, source_path.as_ref()
-            .map(|p| p.as_ref()));
+            .map(|p| p.as_ref()), None);
 
         if self.is_cache_enabled() {
             #[cfg(not(feature = "sync"))]
@@ -314,7 +321,7 @@ impl ModuleResolver for ZipModuleResolver {
         pos: Position,
     ) -> Option<Result<AST, Box<EvalAltResult>>> {
         // Construct the script file path
-        let file_path = self.get_file_path(path, source_path);
+        let file_path = self.get_file_path(path, source_path, None);
 
         let script = self.get_file(file_path.clone())
             .map_err(|_err| {

@@ -16,8 +16,9 @@ pub const MAIN_FILE: &str = "main";
 
 pub struct OmnibusEngine<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> {
     rh_engine: Engine,
+    rh_resolver: RefCell<Option<ZipModuleResolver>>,
+    rh_ast: Option<AST>,
     deps: Rc<RefCell<Extern<S, A, Q>>>,
-    ast: Option<AST>,
     label: String,
 }
 
@@ -38,9 +39,10 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     ) -> Self {
         Self {
             rh_engine: Engine::new_raw(),
+            rh_resolver: RefCell::new(None),
+            rh_ast: None,
             deps,
-            ast: None,
-            label: "cortex.core:v1".to_string(), // TODO:
+            label: "cortex.core:v1".to_string(), // TODO: load core config
         }
     }
 
@@ -68,17 +70,17 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     pub fn register_handlers(&mut self) -> &mut Self {
         let label = self.label.clone();
         self.rh_engine.on_print(move |text| {
-            debug_print!("RHAI[info ][{}]: {}", label, text);
+            debug_print!("CORTEX[{}][info ]: {}", label, text);
         });
 
         let label = self.label.clone();
         self.rh_engine.on_debug(move |text, source, pos| {
             if let Some(source) = source {
-                debug_print!("RHAI[debug][{}]: {} @ {:?} | {}", label, source, pos, text);
+                debug_print!("CORTEX[{}][debug]: {} @ {:?} | {}", label, source, pos, text);
             } else if pos.is_none() {
-                debug_print!("RHAI[debug][{}]: {}", label, text);
+                debug_print!("CORTEX[{}][debug]: {}", label, text);
             } else {
-                debug_print!("RHAI[debug][{}]: {:?} | {}", label, pos, text);
+                debug_print!("CORTEX[{}][debug]: {:?} | {}", label, pos, text);
             }
         });
 
@@ -100,33 +102,14 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         self
     }
 
-    #[inline]
-    pub fn load_script_compressed(&mut self, compressed_bytes: &[u8]) -> Result<(), StdError> {
-        let b = decompress_bytes(compressed_bytes)?;
-        let s = String::from_utf8(b).map_err(|err| {
-            return StdError::GenericErr {
-                msg: format!("failed convert rhai script binary to utf8 string: {err}"),
-                backtrace: None,
-            };
-        })?;
-
-        self.load_script(String::as_str(&s))
+    #[inline(always)]
+    pub fn loaded_core(&mut self) -> bool {
+        self.rh_resolver.borrow().is_some()
     }
 
-    #[inline]
-    pub fn load_script(&mut self, script: &str) -> Result<(), StdError> {
-        // TODO: https://rhai.rs/book/rust/modules/self-contained.html
-        // Switch to the above, possibly zip or gzip a directory of files resolve from that.
-        let ast: AST = self.rh_engine.compile(script).map_err(|err| {
-            return StdError::GenericErr {
-                msg: format!("failed to compile rhai script: {err}"),
-                backtrace: None,
-            };
-        })?;
-
-        self.ast = Some(ast);
-
-        Ok(())
+    #[inline(always)]
+    pub fn loaded_ast(&mut self) -> bool {
+        self.rh_ast.is_some()
     }
 
     #[inline]
@@ -139,42 +122,125 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
             };
         })?;
 
-        // TODO: This is clunky, I would like to be able to query the zip later.
-        // (handing ownership of the resolver to rhai makes it impossible without refactoring).
-
-        let main_path = resolver.get_file_path(MAIN_FILE, None);
-        let main_source = resolver.get_file(main_path)
-            .map_err(|err| {
-                return StdError::GenericErr {
-                    msg: format!("failed to load {}.{} file source: {err}", MAIN_FILE, RHAI_SCRIPT_EXTENSION),
-                    backtrace: None,
-                };
-            })?;
-
-        // TODO: Enhance, use a collection.
-        self.rh_engine.set_module_resolver(resolver.clone());
-        self.load_script(main_source.as_str())?;
+        self.rh_resolver = RefCell::new(Some(resolver.clone()));
+        self.rh_engine.set_module_resolver(resolver);
+        self.load_main()?;
 
         Ok(())
     }
 
     #[inline]
-    pub fn run_handle(&mut self, env: Env) -> StdResult<HandleResponse> {
-        if self.ast.is_none() {
+    pub fn get_file(&mut self, path: &str, custom_extension: Option<String>) -> Result<String, StdError> {
+        if !self.loaded_core() {
             return Err(StdError::GenericErr {
-                msg: format!("cannot call 'run_handle' without a compiled script"),
+                msg: format!("can not 'get_file' without a core loaded."),
                 backtrace: None,
             });
         }
 
-        let ast = self.ast.clone().unwrap();
+        let mut rc_resolver = RefCell::borrow_mut(&self.rh_resolver);
+        let resolver = rc_resolver.as_mut().unwrap();
+
+        let full_path = resolver.get_file_path(path, None, custom_extension);
+        let source = resolver.get_file(full_path)
+            .map_err(|err| {
+                return StdError::GenericErr {
+                    msg: format!("failed to load {}.{} file source: {err}",
+                                 MAIN_FILE, RHAI_SCRIPT_EXTENSION),
+                    backtrace: None,
+                };
+            })?;
+
+        Ok(source)
+    }
+
+    #[inline]
+    pub fn load_script(&mut self, path: &str) -> Result<(), StdError> {
+        if !self.loaded_core() {
+            return Err(StdError::GenericErr {
+                msg: format!("can not 'load_script' without a core loaded."),
+                backtrace: None,
+            });
+        }
+
+        let source = self.get_file(path, None)?;
+
+        self.load_script_raw(source.as_str())
+    }
+
+    #[inline(always)]
+    pub fn load_main(&mut self) -> Result<(), StdError> {
+        self.load_script(MAIN_FILE)
+    }
+
+    #[inline]
+    pub fn load_script_raw_compressed(&mut self, compressed_bytes: &[u8]) -> Result<(), StdError> {
+        let b = decompress_bytes(compressed_bytes)?;
+        let s = String::from_utf8(b).map_err(|err| {
+            return StdError::GenericErr {
+                msg: format!("failed convert rhai script binary to utf8 string: {err}"),
+                backtrace: None,
+            };
+        })?;
+
+        self.load_script_raw(String::as_str(&s))
+    }
+
+    #[inline]
+    pub fn load_script_raw(&mut self, script: &str) -> Result<(), StdError> {
+        let ast: AST = self.rh_engine.compile(script).map_err(|err| {
+            return StdError::GenericErr {
+                msg: format!("failed to compile rhai script: {err}"),
+                backtrace: None,
+            };
+        })?;
+
+        if self.rh_ast.is_some() {
+            self.rh_ast = Some(self.rh_ast.as_mut().unwrap().merge(&ast));
+        } else {
+            self.rh_ast = Some(ast);
+        }
+
+        Ok(())
+    }
+
+    #[inline]
+    pub fn validate(&mut self) -> Result<(), StdError> {
+        if !self.loaded_ast() {
+            return Err(StdError::GenericErr {
+                msg: format!("cannot call 'validate' without a compiled script or core"),
+                backtrace: None,
+            });
+        }
+
+        //self.rh_ast.unwrap().
+
+        Ok(())
+    }
+
+    #[inline]
+    pub fn run_deploy(&mut self, _env: Env) -> StdResult<HandleResponse> {
+        // TODO:
+        Ok(HandleResponse::default())
+    }
+
+    #[inline]
+    pub fn run_handle(&mut self, env: Env) -> StdResult<HandleResponse> {
+        if !self.loaded_ast() {
+            return Err(StdError::GenericErr {
+                msg: format!("cannot call 'run_handle' without a compiled script or core"),
+                backtrace: None,
+            });
+        }
+
+        let ast = self.rh_ast.as_mut().unwrap();
         let mut scope = Scope::new();
 
         scope.push("env", env);
         //scope.push("my_string", "hello, world!");
         //scope.push_constant("MY_CONST", true);
 
-        let _res = self.rh_engine.call_fn(&mut scope, &ast,
+        let _res = self.rh_engine.call_fn(&mut scope, ast,
                                           "handle", ()).map_err(|err| {
             return StdError::GenericErr {
                 msg: format!("failed to run 'handle' on rhai script: {err}"),
