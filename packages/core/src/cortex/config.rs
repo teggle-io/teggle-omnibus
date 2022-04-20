@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use cosmwasm_std::StdError;
 use rhai::{Dynamic, Map};
 
@@ -9,12 +11,14 @@ pub const REQ_KEYS_CORTEX: &'static [&'static str] = &[CFG_KEY_NAME, CFG_KEY_VER
 
 pub struct CortexConfig {
     map: Map,
+    cache: RefCell<BTreeMap<String, Dynamic>>,
 }
 
 impl CortexConfig {
     pub fn new(map: Map) -> Self {
         Self {
-            map
+            map,
+            cache: BTreeMap::new().into(),
         }
     }
 
@@ -39,25 +43,37 @@ impl CortexConfig {
         Ok(())
     }
 
-    pub fn get(&self, key: &str) -> Dynamic {
-        if key.len() == 0 {
-            println!("here 1");
-            return Dynamic::UNIT;
+    pub fn get(&self, key: &str) -> &Dynamic {
+        let cache_key = key.to_string();
+
+        if let Some(value) = self.cache.borrow().get(&cache_key) {
+            return value;
         }
 
-        let split = key.split(".");
-        let keys = split.collect::<Vec<&str>>();
+        let val = self._get(key);
+
+        self.cache.borrow_mut().insert(cache_key, val);
+
+        val
+    }
+
+    fn _get(&self, key: &str) -> &Dynamic {
+        if key.is_empty() {
+            return &Dynamic::UNIT;
+        }
+
+        let keys = key.split(".").collect::<Vec<_>>();
 
         let cur_key_opt = keys.get(0);
         if cur_key_opt.is_none() {
-            println!("here 2");
-            return Dynamic::UNIT;
+            return &Dynamic::UNIT;
         }
 
-        let mut cur = match self.map.get(cur_key_opt.as_ref().unwrap()) {
+        let cur_key = cur_key_opt.unwrap();
+
+        let mut cur = match self.map.get(*cur_key) {
             None => {
-                println!("here 3");
-                return Dynamic::UNIT;
+                return &Dynamic::UNIT;
             }
             Some(cur) => cur.clone()
         };
@@ -66,8 +82,7 @@ impl CortexConfig {
             for ki in 1..keys.len() {
                 // Is cur a Map?
                 if cur.is::<Map>() != true {
-                    println!("here 4.1");
-                    return Dynamic::UNIT;
+                    return &Dynamic::UNIT;
                 }
 
                 let cur_map = cur.read_lock::<Map>().unwrap();
@@ -75,22 +90,22 @@ impl CortexConfig {
                 // Get next key
                 let cur_key_opt = keys.get(ki);
                 if cur_key_opt.is_none() {
-                    println!("here 5");
-                    return Dynamic::UNIT;
+                    return &Dynamic::UNIT;
                 }
 
                 // Get value
-                cur = match cur_map.get(cur_key_opt.as_ref().unwrap()) {
+                let cur_key = cur_key_opt.unwrap();
+
+                cur = match cur_map.get(*cur_key) {
                     None => {
-                        println!("here 7");
-                        return Dynamic::UNIT;
+                        return &Dynamic::UNIT;
                     }
                     Some(cur) => cur.clone()
                 };
             }
         }
 
-        return cur;
+        return &cur;
     }
 
     pub fn cortex_name(&mut self) -> String {
