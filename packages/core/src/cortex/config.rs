@@ -46,18 +46,18 @@ impl CortexConfig {
         Ok(())
     }
 
-    pub fn get(&self, key: &str) -> &Dynamic {
+    pub fn get(&self, key: &str) -> Dynamic {
         let cache_key = key.to_string();
 
         if let Some(value) = self.cache.borrow().get(&cache_key) {
-            return value;
+            return value.clone();
         }
 
         let val = self._get(key);
 
-        self.cache.borrow_mut().insert(cache_key, val);
+        self.cache.borrow_mut().insert(cache_key, val.clone());
 
-        &val
+        val
     }
 
     fn _get(&self, key: &str) -> Dynamic {
