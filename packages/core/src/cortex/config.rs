@@ -23,7 +23,8 @@ impl CortexConfig {
     }
 
     pub fn init(&mut self) -> Result<(), StdError> {
-        let name = self.get("cortex.name");
+        //let name = self.get("cortex.name");
+        /*
         if name.type_name() == "()" {
             return Err(StdError::GenericErr {
                 msg: format!("key not found."),
@@ -38,7 +39,9 @@ impl CortexConfig {
             }
         })?;
 
-        println!("name: {}", name_str);
+         */
+
+        //println!("name: {}", name_str);
 
         Ok(())
     }
@@ -54,26 +57,26 @@ impl CortexConfig {
 
         self.cache.borrow_mut().insert(cache_key, val);
 
-        val
+        &val
     }
 
-    fn _get(&self, key: &str) -> &Dynamic {
+    fn _get(&self, key: &str) -> Dynamic {
         if key.is_empty() {
-            return &Dynamic::UNIT;
+            return Dynamic::UNIT;
         }
 
         let keys = key.split(".").collect::<Vec<_>>();
 
         let cur_key_opt = keys.get(0);
         if cur_key_opt.is_none() {
-            return &Dynamic::UNIT;
+            return Dynamic::UNIT;
         }
 
         let cur_key = cur_key_opt.unwrap();
 
         let mut cur = match self.map.get(*cur_key) {
             None => {
-                return &Dynamic::UNIT;
+                return Dynamic::UNIT;
             }
             Some(cur) => cur.clone()
         };
@@ -82,7 +85,7 @@ impl CortexConfig {
             for ki in 1..keys.len() {
                 // Is cur a Map?
                 if cur.is::<Map>() != true {
-                    return &Dynamic::UNIT;
+                    return Dynamic::UNIT;
                 }
 
                 let cur_map = cur.read_lock::<Map>().unwrap();
@@ -90,7 +93,7 @@ impl CortexConfig {
                 // Get next key
                 let cur_key_opt = keys.get(ki);
                 if cur_key_opt.is_none() {
-                    return &Dynamic::UNIT;
+                    return Dynamic::UNIT;
                 }
 
                 // Get value
@@ -98,14 +101,14 @@ impl CortexConfig {
 
                 cur = match cur_map.get(*cur_key) {
                     None => {
-                        return &Dynamic::UNIT;
+                        return Dynamic::UNIT;
                     }
                     Some(cur) => cur.clone()
                 };
             }
         }
 
-        return &cur;
+        return cur;
     }
 
     pub fn cortex_name(&mut self) -> String {
