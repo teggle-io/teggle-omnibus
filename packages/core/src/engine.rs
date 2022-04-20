@@ -252,7 +252,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         let mut cfg = CortexConfig::new(
             json_str_to_map(&self.rh_engine, cfg_source.as_str())?
         );
-        cfg.init()?;
+        cfg.validate()?;
 
         #[cfg(any(feature = "debug-print", feature = "test-print"))]
         {
