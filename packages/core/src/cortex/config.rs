@@ -42,7 +42,7 @@ impl CortexConfig {
     pub fn get(&self, key: &str) -> Dynamic {
         if key.len() == 0 {
             println!("here 1");
-            return Dynamic::from(());
+            return Dynamic::UNIT;
         }
 
         let split = key.split(".");
