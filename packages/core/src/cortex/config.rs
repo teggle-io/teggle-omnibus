@@ -10,14 +10,14 @@ pub const CFG_KEY_CORTEX_VERSION: &'static str = "cortex.version";
 pub const REQ_STR_KEYS: &'static [&'static str] = &[CFG_KEY_CORTEX_NAME, CFG_KEY_CORTEX_VERSION];
 
 pub struct CortexConfig {
-    map: Map,
+    data: Map,
     cache: RefCell<BTreeMap<String, Dynamic>>,
 }
 
 impl CortexConfig {
     pub fn new(map: Map) -> Self {
         Self {
-            map,
+            data: map,
             cache: BTreeMap::new().into(),
         }
     }
@@ -66,14 +66,15 @@ impl CortexConfig {
 
         let keys = key.split(".").collect::<Vec<_>>();
 
-        let cur_key_opt = keys.get(0);
-        if cur_key_opt.is_none() {
-            return Dynamic::UNIT;
-        }
+        // Get the first key (outside the loop as this comes from data).
+        let cur_key = match keys.get(0) {
+            None => {
+                return Dynamic::UNIT;
+            }
+            Some(cur_key) => cur_key
+        };
 
-        let cur_key = cur_key_opt.unwrap();
-
-        let mut cur = match self.map.get(*cur_key) {
+        let mut cur = match self.data.get(*cur_key) {
             None => {
                 return Dynamic::UNIT;
             }
@@ -89,14 +90,13 @@ impl CortexConfig {
 
                 let cur_map = cur.read_lock::<Map>().unwrap();
 
-                // Get next key
-                let cur_key_opt = keys.get(ki);
-                if cur_key_opt.is_none() {
-                    return Dynamic::UNIT;
-                }
-
-                // Get value
-                let cur_key = cur_key_opt.unwrap();
+                // Get the next key value
+                let cur_key = match keys.get(ki) {
+                    None => {
+                        return Dynamic::UNIT;
+                    }
+                    Some(cur_key) => cur_key
+                };
 
                 cur = match cur_map.get(*cur_key) {
                     None => {
