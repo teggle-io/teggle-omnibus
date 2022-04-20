@@ -11,8 +11,9 @@ readme = "README.md"
 [features]
 default = []
 
-[dependencies]
-rhai = "1.6.1"
+[dependencies.rhai]
+version = "1.6.1"
+#path = "../../../../../rhai"
 
 [dependencies.zip]
 version = "0.6.2"

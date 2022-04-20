@@ -18,13 +18,13 @@ def_package! {
     /// * [`BasicTimePackage`][super::BasicTimePackage]
     /// * [`MoreStringPackage`][super::MoreStringPackage]
     pub StandardPackage(lib) {
-        CorePackage::init(lib);
-        BitFieldPackage::init(lib);
-        LogicPackage::init(lib);
-        BasicMathPackage::init(lib);
-        BasicArrayPackage::init(lib);
-        BasicBlobPackage::init(lib);
-        BasicMapPackage::init(lib);
-        MoreStringPackage::init(lib);
+        CorePackage::init(lib); // 18k extra in WASM
+        BitFieldPackage::init(lib); // 1k extra
+        LogicPackage::init(lib); // < 1k extra
+        BasicMathPackage::init(lib); // 1k extra
+        BasicArrayPackage::init(lib); // 15k extra
+        BasicBlobPackage::init(lib); // 7k extra
+        BasicMapPackage::init(lib); // 4k extra
+        MoreStringPackage::init(lib); // 34k extra
     }
 }

@@ -6,14 +6,14 @@ use std::rc::Rc;
 
 use cosmwasm_std::{Api, debug_print, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage};
 use flate2::read::GzDecoder;
-use rhai::{AST, Engine, Module, Scope, ScriptFnDef, Shared};
+use rhai::{AST, Engine, Map, Module, Scope, ScriptFnDef, Shared};
 use rhai::packages::Package;
 use zip_module_resolver::{RHAI_SCRIPT_EXTENSION, ZipModuleResolver};
 use crate::CortexConfig;
 
 use crate::rhai::packages::pkg_std::StandardPackage;
 
-pub const YAML_EXTENSION: &'static str = "yaml";
+pub const JSON_EXTENSION: &'static str = "json";
 
 pub const MAIN_FILE: &'static str = "main";
 pub const CFG_FILE: &'static str = "config";
@@ -243,14 +243,16 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
             });
         }
 
-        self.get_file(CFG_FILE, Some(String::from(YAML_EXTENSION)))
+        self.get_file(CFG_FILE, Some(String::from(JSON_EXTENSION)))
     }
 
     pub fn load_config(&mut self) -> Result<(), StdError> {
         let cfg_source = self.load_config_source()?;
 
-        let mut cfg = CortexConfig::new();
-        cfg.load_source(cfg_source.as_str())?;
+        let mut cfg = CortexConfig::new(
+            json_str_to_map(&self.rh_engine, cfg_source.as_str())?
+        );
+        cfg.init()?;
 
         #[cfg(any(feature = "debug-print", feature = "test-print"))]
         {
@@ -316,6 +318,21 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 }
 
 //// Utils
+
+// JSON
+
+fn json_str_to_map(engine: &Engine, json_str: &str) -> Result<Map, StdError> {
+    // Enable support for inner maps
+    // TODO: Safety checks for { in quotes.
+    let json_str = json_str.replace("{", "#{");
+
+    Ok(engine.parse_json(&json_str, true).map_err(|err| {
+        StdError::GenericErr {
+            msg: format!("failed parse JSON str: {err}"),
+            backtrace: None,
+        }
+    })?)
+}
 
 // Validate
 

@@ -1,6 +1,5 @@
 use cosmwasm_std::StdError;
-use yaml_rust::{Yaml, YamlLoader};
-use yaml_rust::yaml::Hash;
+use rhai::{Dynamic, Map};
 
 pub const CFG_KEY_CORTEX: &'static str = "cortex";
 pub const CFG_KEY_NAME: &'static str = "name";
@@ -9,94 +8,96 @@ pub const CFG_KEY_VERSION: &'static str = "version";
 pub const REQ_KEYS_CORTEX: &'static [&'static str] = &[CFG_KEY_NAME, CFG_KEY_VERSION];
 
 pub struct CortexConfig {
-    yaml: Option<Yaml>,
+    map: Map,
 }
 
 impl CortexConfig {
-    pub fn new() -> Self {
+    pub fn new(map: Map) -> Self {
         Self {
-            yaml: None
+            map
         }
     }
 
-    pub fn load_source(&mut self, cfg_source: &str) -> Result<(), StdError> {
-        let mut yaml_vec = YamlLoader::load_from_str(cfg_source).map_err(|err| {
-            StdError::GenericErr {
-                msg: format!("yaml error: {err}"),
+    pub fn init(&mut self) -> Result<(), StdError> {
+        let name = self.get("cortex.name");
+        if name.type_name() == "()" {
+            return Err(StdError::GenericErr {
+                msg: format!("key not found."),
+                backtrace: None,
+            })
+        }
+
+        let name_str: String = name.into_string().map_err(|err| {
+            return StdError::GenericErr {
+                msg: format!("failed to convert blah: {err}"),
                 backtrace: None,
             }
         })?;
 
-        if yaml_vec.len() != 1 {
-            return Err(StdError::GenericErr {
-                msg: format!("wrong number of documents detected (got {}, expected 1)",
-                             yaml_vec.len()),
-                backtrace: None,
-            });
-        }
-
-        self.yaml = Some(yaml_vec.swap_remove(0));
-        self.validate()?;
+        println!("name: {}", name_str);
 
         Ok(())
     }
 
-    pub fn validate(&mut self) -> Result<(), StdError> {
-        let cortex = self.yaml()[CFG_KEY_CORTEX].as_hash();
-        if cortex.is_none() {
-            return Err(StdError::GenericErr {
-                msg: format!("config missing key '{}'", CFG_KEY_CORTEX),
-                backtrace: None,
-            });
+    pub fn get(&self, key: &str) -> Dynamic {
+        if key.len() == 0 {
+            println!("here 1");
+            return Dynamic::from(());
         }
 
-        let cortex = cortex.unwrap();
-        for req in REQ_KEYS_CORTEX {
-            let value = cortex.get(&Yaml::from_str(req));
-            if value.is_none() {
-                return Err(StdError::GenericErr {
-                    msg: format!("config missing key '{}.{}'", CFG_KEY_CORTEX, req),
-                    backtrace: None,
-                });
-            }
+        let split = key.split(".");
+        let keys = split.collect::<Vec<&str>>();
 
-            let value = value.unwrap().as_str();
-            if value.is_none() || value.unwrap().len() <= 0 {
-                return Err(StdError::GenericErr {
-                    msg: format!("config missing key '{}.{}' (or not a string)", CFG_KEY_CORTEX, req),
-                    backtrace: None,
-                });
+        let cur_key_opt = keys.get(0);
+        if cur_key_opt.is_none() {
+            println!("here 2");
+            return Dynamic::UNIT;
+        }
+
+        let mut cur = match self.map.get(cur_key_opt.as_ref().unwrap()) {
+            None => {
+                println!("here 3");
+                return Dynamic::UNIT;
+            }
+            Some(cur) => cur.clone()
+        };
+
+        if keys.len() >= 2 {
+            for ki in 1..keys.len() {
+                // Is cur a Map?
+                if cur.is::<Map>() != true {
+                    println!("here 4.1");
+                    return Dynamic::UNIT;
+                }
+
+                let cur_map = cur.read_lock::<Map>().unwrap();
+
+                // Get next key
+                let cur_key_opt = keys.get(ki);
+                if cur_key_opt.is_none() {
+                    println!("here 5");
+                    return Dynamic::UNIT;
+                }
+
+                // Get value
+                cur = match cur_map.get(cur_key_opt.as_ref().unwrap()) {
+                    None => {
+                        println!("here 7");
+                        return Dynamic::UNIT;
+                    }
+                    Some(cur) => cur.clone()
+                };
             }
         }
 
-        Ok(())
-    }
-
-    pub fn yaml(&mut self) -> &Yaml {
-        self.yaml.as_ref().unwrap()
-    }
-
-    pub fn cortex(&mut self) -> &Hash {
-        self.yaml()[CFG_KEY_CORTEX].as_hash().unwrap()
+        return cur;
     }
 
     pub fn cortex_name(&mut self) -> String {
-        unwrap_hash_str(self.cortex(), CFG_KEY_NAME).to_string()
+        "CHANGE ME".to_string()
     }
 
     pub fn cortex_version(&mut self) -> String {
-        unwrap_hash_str(self.cortex(), CFG_KEY_VERSION).to_string()
+        "CHANGE ME".to_string()
     }
-}
-
-// Util
-
-#[inline]
-fn unwrap_hash_key<'a>(hash: &'a Hash, key: &'a str) -> &'a Yaml {
-    return hash.get(&Yaml::from_str(key)).unwrap()
-}
-
-#[inline]
-fn unwrap_hash_str<'a>(hash: &'a Hash, key: &'a str) -> &'a str {
-    unwrap_hash_key(hash, key).as_str().unwrap()
 }
