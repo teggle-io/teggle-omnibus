@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use cosmwasm_std::{Api, debug_print, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage};
 use flate2::read::GzDecoder;
-use rhai::{AST, Engine, Map, Module, Scope, ScriptFnDef, Shared};
+use rhai::{AST, Dynamic, Engine, EvalAltResult, ImmutableString, Map, Module, OptimizationLevel, Scope, ScriptFnDef, Shared};
 use rhai::packages::Package;
 use zip_module_resolver::{RHAI_SCRIPT_EXTENSION, ZipModuleResolver};
 use crate::CortexConfig;
@@ -41,7 +41,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     ) -> Self {
         let mut engine = Self::new_raw(deps);
 
-        engine.register_modules();
+        engine.default_init();
         engine
     }
 
@@ -61,15 +61,23 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     }
 
     #[inline(always)]
-    pub fn register_components(&mut self) {
+    pub fn default_init(&mut self) -> &mut Self {
+        self.register_modules();
+        self.rh_engine.set_strict_variables(true);
+        self.rh_engine.set_optimization_level(OptimizationLevel::None);
+
+        self
+    }
+
+    #[inline(always)]
+    pub fn register_components(&mut self) -> &mut Self  {
         self.register_handlers()
-            .register_functions();
+            .register_functions()
     }
 
     #[inline(always)]
     pub fn register_modules(&mut self) -> &mut Self {
         self.register_global_module(StandardPackage::new().as_shared_module());
-
         self
     }
 
@@ -78,7 +86,6 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         self.rh_engine.register_global_module(module);
         self
     }
-
 
     pub fn register_handlers(&mut self) -> &mut Self {
         #[cfg(any(feature = "debug-print", feature = "test-print"))]
@@ -123,6 +130,28 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         let deps = self.deps.clone();
         self.rh_engine.register_fn("storage_set", move |key: &str, val: &[u8]| {
             RefCell::borrow_mut(&*deps).storage.set(key.as_bytes(), val);
+        });
+
+        let deps = self.deps.clone();
+        self.rh_engine.register_result_fn("storage_set", move |key_path: &mut Vec<Dynamic>, val: &str| -> Result<(), Box<EvalAltResult>> {
+            let key = expand_key_path(key_path).map_err(|err| {
+                return format!("error during storage set: {err}");
+            })?;
+
+            RefCell::borrow_mut(&*deps).storage.set(key.as_bytes(), val.as_bytes());
+
+            Ok(())
+        });
+
+        let deps = self.deps.clone();
+        self.rh_engine.register_result_fn("storage_set", move |key_path: &mut Vec<Dynamic>, val: &[u8]| -> Result<(), Box<EvalAltResult>> {
+            let key = expand_key_path(key_path).map_err(|err| {
+                return format!("error during storage set: {err}");
+            })?;
+
+            RefCell::borrow_mut(&*deps).storage.set(key.as_bytes(), val);
+
+            Ok(())
         });
 
         self
@@ -217,7 +246,11 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     }
 
     pub fn load_script_raw(&mut self, script: &str) -> Result<(), StdError> {
-        let ast: AST = self.rh_engine.compile(script).map_err(|err| {
+        // TODO: Abstract.
+        let mut scope = Scope::new();
+        scope.push_constant("ENV", false);
+
+        let ast: AST = self.rh_engine.compile_with_scope(&scope, script).map_err(|err| {
             return StdError::GenericErr {
                 msg: format!("failed to compile rhai script: {err}"),
                 backtrace: None,
@@ -256,10 +289,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 
         #[cfg(any(feature = "debug-print", feature = "test-print"))]
         {
-            let name = cfg.cortex_name();
-            let version = cfg.cortex_version();
-
-            self.debug_label = format!("{}:{}", name, version);
+            self.debug_label = format!("{}:{}", cfg.cortex_name(), cfg.cortex_version());
         }
 
         self.cfg = Some(cfg);
@@ -301,17 +331,27 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         let ast = self.rh_ast.as_mut().unwrap();
         let mut scope = Scope::new();
 
-        scope.push("env", env);
-        //scope.push("my_string", "hello, world!");
+        scope.push_constant("ENV", env);
+        scope.push("my_string", "hello, world!");
         //scope.push_constant("MY_CONST", true);
 
-        let _res = self.rh_engine.call_fn(&mut scope, ast,
-                                          "handle", ()).map_err(|err| {
-            return StdError::GenericErr {
-                msg: format!("failed to run 'handle' on rhai script: {err}"),
-                backtrace: None,
-            };
-        })?;
+        // Re-optimize the AST
+        let opt_ast = self.rh_engine.optimize_ast(&scope, ast.clone(),
+                                                  OptimizationLevel::Simple);
+
+        let mut args: [Dynamic; 0] = [];
+
+        for _i in 0..1000 {
+            self.rh_engine.call_fn_raw(&mut scope, &opt_ast, false, true,
+                                       "simple", None, &mut args).map_err(|err| {
+            //let _res = self.rh_engine.call_fn(&mut scope, &opt_ast,
+            //                                  "simple", ()).map_err(|err| {
+                return StdError::GenericErr {
+                    msg: format!("failed to run 'handle' on rhai script: {err}"),
+                    backtrace: None,
+                };
+            })?;
+        }
 
         Ok(HandleResponse::default())
     }
@@ -319,13 +359,33 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 
 //// Utils
 
+// Keys
+// TODO: Move
+fn expand_key_path(key_path: &mut Vec<Dynamic>) -> Result<String, String> {
+    if key_path.is_empty() {
+       return Err("key path is required.")?;
+    }
+
+    let mut buf = String::new();
+    key_path.into_iter().try_for_each(|key| {
+        if !buf.is_empty() { buf.push_str("."); }
+
+        match key.read_lock::<ImmutableString>() {
+            None => {
+                return Err("keys must all be String.");
+            },
+            Some(v) => buf.push_str(v.as_str() )
+        };
+
+        Ok(())
+    })?;
+
+    Ok(buf)
+}
+
 // JSON
 
 fn json_str_to_map(engine: &Engine, json_str: &str) -> Result<Map, StdError> {
-    // Enable support for inner maps
-    // TODO: Safety checks for { in quotes.
-    let json_str = json_str.replace("{", "#{");
-
     Ok(engine.parse_json(&json_str, true).map_err(|err| {
         StdError::GenericErr {
             msg: format!("failed parse JSON str: {err}"),

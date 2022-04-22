@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 use cosmwasm_std::StdError;
-use rhai::{Dynamic, Map};
+use rhai::{Dynamic, INT, Map};
 
 pub const CFG_KEY_CORTEX_NAME: &'static str = "cortex.name";
 pub const CFG_KEY_CORTEX_VERSION: &'static str = "cortex.version";
@@ -57,6 +57,24 @@ impl CortexConfig {
         }
 
         Some(val.into_string().unwrap())
+    }
+
+    pub fn get_int(&self, key: &str) -> Option<INT> {
+        let val = self.get(key);
+        if val.is::<INT>() != true {
+            return None;
+        }
+
+        Some(val.as_int().unwrap())
+    }
+
+    pub fn get_bool(&self, key: &str) -> Option<bool> {
+        let val = self.get(key);
+        if val.is::<bool>() != true {
+            return None;
+        }
+
+        Some(val.as_bool().unwrap())
     }
 
     fn _get(&self, key: &str) -> Dynamic {
