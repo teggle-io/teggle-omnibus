@@ -21,7 +21,11 @@ serde-json-wasm = { version = "0.2.1" }
 serde = { version = "1.0.117", default-features = false, features = ["derive", "alloc"] }
 flate2 = "1.0.23"
 cosmwasm-std = { version = "0.10", package = "teggle-cosmwasm-std", features = ["rc-deps"], path = "../cosmwasm/std" }
-zip-module-resolver = { version = "0.1.0", package = "teggle-rhai-module-resolver-zip", path = "../rhai/module-resolver/zip" }
+
+[dependencies.zip-module-resolver]
+package = "teggle-rhai-module-resolver-zip"
+features = [ "json_config" ]
+path = "../rhai/module-resolver/zip"
 
 [dependencies.rhai]
 #version = "1.6.1"

@@ -6,17 +6,14 @@ use std::rc::Rc;
 
 use cosmwasm_std::{Api, debug_print, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage};
 use flate2::read::GzDecoder;
-use rhai::{AST, Dynamic, Engine, EvalAltResult, ImmutableString, Map, Module, OptimizationLevel, Scope, ScriptFnDef, Shared};
+use rhai::{AST, Dynamic, Engine, EvalAltResult, ImmutableString, Module, Scope, ScriptFnDef, Shared};
 use rhai::packages::Package;
-use zip_module_resolver::{RHAI_SCRIPT_EXTENSION, ZipModuleResolver};
+use zip_module_resolver::{RHAI_EXTENSION, ZipModuleResolver};
 use crate::CortexConfig;
 
 use crate::rhai::packages::pkg_std::StandardPackage;
 
-pub const JSON_EXTENSION: &'static str = "json";
-
 pub const MAIN_FILE: &'static str = "main";
-pub const CFG_FILE: &'static str = "config";
 
 pub const ENDPOINT_FN_DEPLOY: &'static str = "deploy";
 pub const ENDPOINT_FN_HANDLE: &'static str = "handle";
@@ -64,7 +61,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     pub fn default_init(&mut self) -> &mut Self {
         self.register_modules();
         self.rh_engine.set_strict_variables(true);
-        self.rh_engine.set_optimization_level(OptimizationLevel::None);
+        //self.rh_engine.set_optimization_level(OptimizationLevel::None);
 
         self
     }
@@ -169,7 +166,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 
     pub fn load_core(&mut self, bytes: Vec<u8>) -> Result<(), StdError> {
         let mut resolver = ZipModuleResolver::new();
-        resolver.load_from_bytes(bytes).map_err(|err| {
+        resolver.load_from_bytes_and_init(bytes).map_err(|err| {
             return StdError::GenericErr {
                 msg: format!("failed to load core: {err}"),
                 backtrace: None,
@@ -191,7 +188,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
             return Err(StdError::GenericErr {
                 msg: format!("can not 'get_file' without a core loaded (attempting to load '{}.{}')",
                              path, custom_extension
-                                 .unwrap_or(RHAI_SCRIPT_EXTENSION.to_string())),
+                                 .unwrap_or(RHAI_EXTENSION.to_string())),
                 backtrace: None,
             });
         }
@@ -206,7 +203,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
                 return StdError::GenericErr {
                     msg: format!("failed to load file '{}.{}': {err}",
                                  path, custom_extension
-                                     .unwrap_or(RHAI_SCRIPT_EXTENSION.to_string())),
+                                     .unwrap_or(RHAI_EXTENSION.to_string())),
                     backtrace: None,
                 };
             })?;
@@ -258,8 +255,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         })?;
 
         if self.rh_ast.is_some() {
-            // TODO: This should be changed to 'combine'
-            self.rh_ast = Some(self.rh_ast.as_mut().unwrap().merge(&ast));
+            self.rh_ast.as_mut().unwrap().combine(ast.to_owned());
         } else {
             self.rh_ast = Some(ast);
         }
@@ -267,24 +263,18 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         Ok(())
     }
 
-    #[inline(always)]
-    pub fn load_config_source(&mut self) -> Result<String, StdError> {
+    pub fn load_config(&mut self) -> Result<(), StdError> {
         if !self.loaded_core() {
             return Err(StdError::GenericErr {
-                msg: format!("can not 'load_config_source' without a core loaded."),
+                msg: format!("can not 'load_config' without a core loaded"),
                 backtrace: None,
             });
         }
 
-        self.get_file(CFG_FILE, Some(String::from(JSON_EXTENSION)))
-    }
+        let mut rc_resolver = RefCell::borrow_mut(&self.rh_resolver);
+        let resolver = rc_resolver.as_mut().unwrap();
 
-    pub fn load_config(&mut self) -> Result<(), StdError> {
-        let cfg_source = self.load_config_source()?;
-
-        let mut cfg = CortexConfig::new(
-            json_str_to_map(&self.rh_engine, cfg_source.as_str())?
-        );
+        let mut cfg = CortexConfig::new(resolver.config());
         cfg.validate()?;
 
         #[cfg(any(feature = "debug-print", feature = "test-print"))]
@@ -331,18 +321,20 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         let ast = self.rh_ast.as_mut().unwrap();
         let mut scope = Scope::new();
 
-        scope.push_constant("ENV", env);
-        scope.push("my_string", "hello, world!");
+        //scope.push_constant("ENV", env);
+        //scope.push("my_string", "hello, world!");
         //scope.push_constant("MY_CONST", true);
 
         // Re-optimize the AST
-        let opt_ast = self.rh_engine.optimize_ast(&scope, ast.clone(),
-                                                  OptimizationLevel::Simple);
+        //let opt_ast = self.rh_engine.optimize_ast(&scope, ast.clone(),
+        //                                          OptimizationLevel::Simple);
 
         let mut args: [Dynamic; 0] = [];
 
+        println!("statements: {}", ast.statements().len());
+
         for _i in 0..1000 {
-            self.rh_engine.call_fn_raw(&mut scope, &opt_ast, false, true,
+            self.rh_engine.call_fn_raw(&mut scope, &ast, false, true,
                                        "simple", None, &mut args).map_err(|err| {
             //let _res = self.rh_engine.call_fn(&mut scope, &opt_ast,
             //                                  "simple", ()).map_err(|err| {
@@ -381,17 +373,6 @@ fn expand_key_path(key_path: &mut Vec<Dynamic>) -> Result<String, String> {
     })?;
 
     Ok(buf)
-}
-
-// JSON
-
-fn json_str_to_map(engine: &Engine, json_str: &str) -> Result<Map, StdError> {
-    Ok(engine.parse_json(&json_str, true).map_err(|err| {
-        StdError::GenericErr {
-            msg: format!("failed parse JSON str: {err}"),
-            backtrace: None,
-        }
-    })?)
 }
 
 // Validate

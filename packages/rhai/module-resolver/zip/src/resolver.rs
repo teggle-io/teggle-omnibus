@@ -5,16 +5,27 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str;
 
-use rhai::{AST, Engine, EvalAltResult, GlobalRuntimeState, Locked, Module, ModuleResolver, Position, Scope, Shared};
+use rhai::{AST, Engine, EvalAltResult, GlobalRuntimeState, Locked, Map, Module, ModuleResolver, Position, Scope, Shared};
 use zip::ZipArchive;
 
+use crate::config::Config;
 use crate::result::{ResolverError, ResolverResult};
 
-pub const RHAI_SCRIPT_EXTENSION: &str = "rhai";
+pub const RHAI_EXTENSION: &'static str = "rhai";
+#[cfg(feature = "json_config")]
+pub const JSON_EXTENSION: &'static str = "json";
+
+pub const MAIN_FILE: &'static str = "main";
+#[cfg(feature = "json_config")]
+pub const CFG_FILE: &'static str = "config";
 
 // Define a custom module resolver.
+#[derive(Debug, Clone)]
 pub struct ZipModuleResolver {
     zip: RefCell<Option<ZipArchive<Cursor<Vec<u8>>>>>,
+    scope: Scope<'static>,
+    #[cfg(feature = "json_config")]
+    config: Option<Config>,
     base_path: Option<PathBuf>,
     extension: String,
     cache_enabled: bool,
@@ -29,7 +40,22 @@ impl ZipModuleResolver {
     #[inline(always)]
     #[must_use]
     pub fn new() -> Self {
-        Self::new_with_extension(RHAI_SCRIPT_EXTENSION.to_string())
+        Self::new_with_extension(RHAI_EXTENSION.to_string())
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn new_with_scope(scope: Scope<'static>) -> Self {
+        Self {
+            zip: RefCell::new(None),
+            scope,
+            #[cfg(feature = "json_config")]
+            config: None,
+            base_path: None,
+            extension: RHAI_EXTENSION.to_string(),
+            cache_enabled: true,
+            cache: BTreeMap::new().into(),
+        }
     }
 
     #[inline(always)]
@@ -37,6 +63,9 @@ impl ZipModuleResolver {
     pub fn new_with_extension(extension: String) -> Self {
         Self {
             zip: RefCell::new(None),
+            scope: Scope::new(),
+            #[cfg(feature = "json_config")]
+            config: None,
             base_path: None,
             extension: extension,
             cache_enabled: true,
@@ -52,6 +81,9 @@ impl ZipModuleResolver {
     ) -> Self {
         Self {
             zip: RefCell::new(None),
+            scope: Scope::new(),
+            #[cfg(feature = "json_config")]
+            config: None,
             base_path: Some(path.into()),
             extension: extension,
             cache_enabled: true,
@@ -83,6 +115,46 @@ impl ZipModuleResolver {
     #[must_use]
     pub fn load_from_bytes(&mut self, bytes: Vec<u8>) -> ResolverResult<()> {
         return self.load(Cursor::new(bytes));
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn load_from_bytes_and_init(&mut self, bytes: Vec<u8>) -> ResolverResult<()> {
+        self.load_from_bytes(bytes)?;
+        self.init()
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn init(&mut self) -> ResolverResult<()> {
+        let engine = Engine::new_raw();
+
+        #[cfg(feature = "json_config")]
+        self.load_config(&engine)?;
+
+        Ok(())
+    }
+
+    /// Get the scope.
+    #[inline(always)]
+    #[must_use]
+    pub fn scope(&self) -> &Scope {
+        &self.scope
+    }
+
+    /// Set the scope.
+    #[inline(always)]
+    pub fn set_scope(&mut self, scope: Scope<'static>) -> &mut Self {
+        self.scope = scope;
+        self
+    }
+
+    /// Get the scope.
+    #[inline(always)]
+    #[must_use]
+    #[cfg(feature = "json_config")]
+    pub fn config(&self) -> Config {
+        self.config.as_ref().unwrap().clone()
     }
 
     /// Get the base path for script files.
@@ -119,6 +191,7 @@ impl ZipModuleResolver {
         self.cache_enabled = enable;
         self
     }
+
     /// Is the cache enabled?
     #[inline(always)]
     #[must_use]
@@ -166,6 +239,44 @@ impl ZipModuleResolver {
         locked_write(&self.cache)
             .remove_entry(&file_path)
             .map(|(.., v)| v)
+    }
+
+    #[inline(always)]
+    #[cfg(feature = "json_config")]
+    pub fn load_config_source(&mut self) -> ResolverResult<String> {
+        if !self.loaded() {
+            return Err(ResolverError::NotReady);
+        }
+
+        self.get_file(self.get_file_path(CFG_FILE, None,
+                                         Some(JSON_EXTENSION.to_string())))
+    }
+
+    #[cfg(feature = "json_config")]
+    pub fn load_config(&mut self, engine: &Engine) -> ResolverResult<()> {
+        let cfg_map = self.load_json_with_engine(CFG_FILE, engine)?;
+
+        self.config = Some(Config::new(cfg_map));
+
+        Ok(())
+    }
+
+    #[inline(always)]
+    pub fn load_json(&mut self, path: &str) -> ResolverResult<Map> {
+        let engine = Engine::new_raw();
+
+        return self.load_json_with_engine(path, &engine);
+    }
+
+    pub fn load_json_with_engine(&mut self, path: &str, engine: &Engine) -> ResolverResult<Map> {
+        let json_source = self.get_file(
+            self.get_file_path(path, None,
+                               Some(JSON_EXTENSION.to_string())))?;
+        let json_map = engine.parse_json(json_source, true).map_err(|err| {
+            ResolverError::JsonParseFailed(err.to_string())
+        })?;
+
+        Ok(json_map)
     }
 
     #[must_use]
@@ -249,15 +360,13 @@ impl ZipModuleResolver {
             }
         }
 
-        let scope = Scope::new();
-
         let script = self.get_file(file_path.clone())
             .map_err(|_err| {
                 Box::new(EvalAltResult::ErrorModuleNotFound(path.to_string(), pos))
             })?;
 
         let mut ast = engine
-            .compile(script)
+            .compile_with_scope(&self.scope, script)
             .map_err(|err| match err {
                 _ => Box::new(
                     EvalAltResult::ErrorInModule(path.to_string(),
@@ -266,6 +375,8 @@ impl ZipModuleResolver {
             })?;
 
         ast.set_source(path);
+
+        let scope = Scope::new();
 
         let m: Shared<Module> = if let Some(_global) = global {
             Module::eval_ast_as_new(scope, &ast, engine)
@@ -341,26 +452,6 @@ impl ModuleResolver for ZipModuleResolver {
                                                       Box::new(EvalAltResult::from(err)), pos).into(),
                 }),
         )
-    }
-}
-
-impl Clone for ZipModuleResolver {
-    fn clone(&self) -> Self {
-        return Self {
-            zip: self.zip.clone(),
-            base_path: self.base_path.clone(),
-            extension: self.extension.clone(),
-            cache_enabled: self.cache_enabled.clone(),
-            cache: self.cache.clone()
-        }
-    }
-
-    fn clone_from(&mut self, source: &Self) {
-        self.zip = source.zip.clone();
-        self.base_path = source.base_path.clone();
-        self.extension = source.extension.clone();
-        self.cache_enabled = source.cache_enabled.clone();
-        self.cache = source.cache.clone();
     }
 }
 

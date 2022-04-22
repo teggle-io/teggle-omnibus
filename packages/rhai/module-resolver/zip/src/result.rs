@@ -15,6 +15,9 @@ pub enum ResolverError {
     /// The requested file could not be read from the archive
     FileReadFailed(Error),
 
+    /// The requested json file could not be parsed
+    JsonParseFailed(String),
+
     /// Not ready (not loaded or prepared)
     NotReady
 }
@@ -24,7 +27,8 @@ impl fmt::Display for ResolverError {
         match self {
             ResolverError::InvalidZip(err) => write!(fmt, "invalid resolver Zip: {}", err),
             ResolverError::FileNotFound => write!(fmt, "specified file not found in resolver archive"),
-            ResolverError::FileReadFailed(err) => write!(fmt, "specified file read filed: {}", err),
+            ResolverError::FileReadFailed(err) => write!(fmt, "file read failed: {}", err),
+            ResolverError::JsonParseFailed(err) => write!(fmt, "json file parse failed: {}", err),
             ResolverError::NotReady => write!(fmt, "the resolver zip isn't ready, did you load?"),
         }
     }
