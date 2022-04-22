@@ -362,8 +362,8 @@ impl ZipModuleResolver {
             }
             Some((consts, body)) => {
                 // Load const into scope and discard AST.
-                engine.compile_with_scope(scope, &consts).map_err(|err| {
-                    ResolverError::ParseError(err)
+                engine.eval_with_scope(scope, &consts).map_err(|err| {
+                    ResolverError::EvalError(*err)
                 })?;
 
                 // Compile main body as AST.
@@ -579,9 +579,16 @@ pub fn locked_write<T>(value: &Locked<T>) -> LockGuardMut<T> {
 // Source
 fn split_source_const(source: &String) -> Option<(String, String)> {
     return match split_source(source, "fn ") {
-        None => None,
+        None => {
+            match split_source(source, "const ") {
+                None => None,
+                Some((before_const, consts)) => {
+                    Some((consts, before_const))
+                }
+            }
+        },
         Some((preamble, body)) => {
-            return match split_source(&preamble, "const ") {
+            match split_source(&preamble, "const ") {
                 None => None,
                 Some((before_const, consts)) => {
                     let mut full_body = before_const.clone();
@@ -589,7 +596,7 @@ fn split_source_const(source: &String) -> Option<(String, String)> {
 
                     Some((consts, full_body))
                 }
-            };
+            }
         }
     };
 }

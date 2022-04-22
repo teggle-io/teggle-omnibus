@@ -285,7 +285,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         println!("statements: {}", ast.statements().len());
 
         for _i in 0..1000 {
-            self.rh_engine.call_fn_raw(&mut scope, &ast, false, true,
+            self.rh_engine.call_fn_raw(&mut scope, &ast, true, true,
                                        "simple", None, &mut args).map_err(|err| {
                 //let _res = self.rh_engine.call_fn(&mut scope, &opt_ast,
                 //                                  "simple", ()).map_err(|err| {

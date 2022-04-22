@@ -25,6 +25,9 @@ pub enum ResolverError {
     /// Wrapped parse error
     ParseError(ParseError),
 
+    /// Wrapped EvalAltResult
+    EvalError(EvalAltResult),
+
     /// Not ready (not loaded or prepared)
     NotReady
 }
@@ -39,6 +42,7 @@ impl fmt::Display for ResolverError {
             ResolverError::SourceCompileFailed(s, err) if s.is_empty() => write!(fmt, "compile failed: {}", err),
             ResolverError::SourceCompileFailed(s, err) => write!(fmt, "compile of '{}' failed: {}", s, err),
             ResolverError::ParseError( err) => write!(fmt, "parse error: {}", err),
+            ResolverError::EvalError( err) => write!(fmt, "eval error: {}", err),
             ResolverError::NotReady => write!(fmt, "the resolver zip isn't ready, did you load?"),
         }
     }
