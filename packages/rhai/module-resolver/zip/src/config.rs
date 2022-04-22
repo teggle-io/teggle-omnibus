@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-use rhai::{Dynamic, INT, Map};
+use rhai::{Array, Dynamic, INT, Map};
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -56,6 +56,34 @@ impl Config {
         }
 
         Some(val.as_bool().unwrap())
+    }
+
+    pub fn get_array(&self, key: &str) -> Option<Array> {
+        let val = self.get(key);
+        if val.is::<Array>() != true {
+            return None;
+        }
+
+        Some(val.read_lock::<Array>().unwrap().to_owned())
+    }
+
+    pub fn get_str_array(&self, key: &str) -> Option<Vec<String>> {
+        return match self.get_array(key) {
+            None => None,
+            Some(a) => {
+                let mut str_vec: Vec<String> = Vec::new();
+                for val in a {
+                    if val.is::<String>() != true {
+                        // TODO: Should this occur?
+                        return None;
+                    }
+
+                    str_vec.push(val.into_string().unwrap())
+                }
+
+                Some(str_vec)
+            }
+        }
     }
 
     fn _get(&self, key: &str) -> Dynamic {

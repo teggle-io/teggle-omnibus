@@ -12,6 +12,9 @@ readme = "README.md"
 default = []
 json_config = []
 
+[dependencies]
+cfg-if = "1.0.0"
+
 [dependencies.rhai]
 git = "https://github.com/schungx/rhai"
 #version = "1.6.1"

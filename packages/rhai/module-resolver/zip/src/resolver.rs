@@ -5,19 +5,23 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str;
 
+use cfg_if::cfg_if;
 use rhai::{AST, Engine, EvalAltResult, GlobalRuntimeState, Locked, Map, Module, ModuleResolver, Position, Scope, Shared};
 use zip::ZipArchive;
 
 use crate::config::Config;
-use crate::result::{ResolverError, ResolverResult};
+use crate::result::{map_resolver_err_to_eval_err, ResolverError, ResolverResult};
 
 pub const RHAI_EXTENSION: &'static str = "rhai";
 #[cfg(feature = "json_config")]
 pub const JSON_EXTENSION: &'static str = "json";
 
-pub const MAIN_FILE: &'static str = "main";
 #[cfg(feature = "json_config")]
 pub const CFG_FILE: &'static str = "config";
+
+#[cfg(feature = "json_config")]
+pub const CFG_KEY_GLOBAL_ENTRYPOINTS: &'static str = "global.entrypoints";
+
 
 // Define a custom module resolver.
 #[derive(Debug, Clone)]
@@ -119,20 +123,25 @@ impl ZipModuleResolver {
 
     #[inline(always)]
     #[must_use]
-    pub fn load_from_bytes_and_init(&mut self, bytes: Vec<u8>) -> ResolverResult<()> {
-        self.load_from_bytes(bytes)?;
-        self.init()
+    pub fn init(&mut self, engine: &Engine) -> ResolverResult<Option<AST>> {
+        self.init_with_scope(engine, Scope::new())
     }
 
     #[inline(always)]
     #[must_use]
-    pub fn init(&mut self) -> ResolverResult<()> {
-        let engine = Engine::new_raw();
+    pub fn init_with_scope(&mut self, engine: &Engine, scope: Scope<'static>) -> ResolverResult<Option<AST>> {
+        self.set_scope(scope);
 
         #[cfg(feature = "json_config")]
-        self.load_config(&engine)?;
+        self.load_config(engine)?;
 
-        Ok(())
+        cfg_if! {
+            if #[cfg(feature = "json_config")] {
+                self.compile_entrypoints(engine)
+            } else {
+                Ok(None)
+            }
+        }
     }
 
     /// Get the scope.
@@ -305,6 +314,12 @@ impl ZipModuleResolver {
         file_path
     }
 
+    #[inline(always)]
+    pub fn get_source_path(&self, path: &str, source_path: Option<&str>) -> PathBuf {
+        self.get_file_path(path, source_path,
+                              Some(RHAI_EXTENSION.to_string()))
+    }
+
     #[inline]
     pub fn get_file(&self, file_path: PathBuf) -> ResolverResult<String> {
         if !self.loaded() {
@@ -328,6 +343,77 @@ impl ZipModuleResolver {
                 Err(ResolverError::FileReadFailed(err))
             }
         }
+    }
+
+    #[inline(always)]
+    pub fn compile(&self, engine: &Engine, source: String) -> ResolverResult<AST> {
+        let mut scope = Scope::new();
+
+        self.compile_with_scope(&mut scope, engine, source)
+    }
+
+    pub fn compile_with_scope(&self, scope: &mut Scope, engine: &Engine,
+                              source: String) -> ResolverResult<AST> {
+        return match split_source_const(&source) {
+            None => {
+                engine.compile_with_scope(scope, &source).map_err(|err| {
+                    ResolverError::ParseError(err)
+                })
+            }
+            Some((consts, body)) => {
+                // Load const into scope and discard AST.
+                engine.compile_with_scope(scope, &consts).map_err(|err| {
+                    ResolverError::ParseError(err)
+                })?;
+
+                // Compile main body as AST.
+                engine.compile_with_scope(scope, &body).map_err(|err| {
+                    ResolverError::ParseError(err)
+                })
+            }
+        };
+    }
+
+    pub fn compile_path_with_scope(&self, path: String, scope: &mut Scope,
+                                   engine: &Engine) -> ResolverResult<AST> {
+        let source_path = self.get_source_path(path.as_str(), None);
+
+        let source = self.get_file(source_path.clone())?;
+
+        self.compile_with_scope(scope, engine, source)
+            .map_err(|err| {
+                ResolverError::SourceCompileFailed(source_path.to_str().unwrap().to_string(),
+                                                   Box::new(err))
+            })
+    }
+
+    #[cfg(feature = "json_config")]
+    pub fn compile_entrypoints(&mut self, engine: &Engine) -> ResolverResult<Option<AST>> {
+        if !self.loaded() {
+            return Err(ResolverError::NotReady);
+        }
+
+        let mut scope = self.scope.to_owned();
+
+        return match self.config.as_ref().unwrap().get_str_array(CFG_KEY_GLOBAL_ENTRYPOINTS) {
+            Some(entrypoints) => {
+                let mut ast: Option<AST> = None;
+                for name in entrypoints {
+                    let cur_ast = self.compile_path_with_scope(name, &mut scope,
+                                                          engine)?;
+                    if ast.is_some() {
+                        ast = Some(ast.unwrap().merge(&cur_ast));
+                    } else {
+                        ast = Some(cur_ast);
+                    }
+                }
+
+                self.set_scope(scope);
+
+                Ok(ast)
+            }
+            None => Ok(None)
+        };
     }
 
     /// Resolve a module based on a path.
@@ -365,13 +451,13 @@ impl ZipModuleResolver {
                 Box::new(EvalAltResult::ErrorModuleNotFound(path.to_string(), pos))
             })?;
 
-        let mut ast = engine
-            .compile_with_scope(&self.scope, script)
-            .map_err(|err| match err {
-                _ => Box::new(
-                    EvalAltResult::ErrorInModule(path.to_string(),
-                                                 Box::new(EvalAltResult::from(err)), pos)
-                ),
+        // Clone to avoid importing any module consts.
+        let mut scope = self.scope.clone();
+
+        let mut ast = self.compile_with_scope(&mut scope, engine, script)
+            .map_err(|err| {
+                EvalAltResult::ErrorInModule(path.to_string(),
+                                             Box::new(map_resolver_err_to_eval_err(err)), pos)
             })?;
 
         ast.set_source(path);
@@ -489,3 +575,34 @@ pub fn locked_write<T>(value: &Locked<T>) -> LockGuardMut<T> {
     #[cfg(feature = "sync")]
     return value.write().unwrap();
 }
+
+// Source
+fn split_source_const(source: &String) -> Option<(String, String)> {
+    return match split_source(source, "fn ") {
+        None => None,
+        Some((preamble, body)) => {
+            return match split_source(&preamble, "const ") {
+                None => None,
+                Some((before_const, consts)) => {
+                    let mut full_body = before_const.clone();
+                    full_body.push_str(body.as_str());
+
+                    Some((consts, full_body))
+                }
+            };
+        }
+    };
+}
+
+#[inline(always)]
+fn split_source(source: &String, pat: &str) -> Option<(String, String)> {
+    return match source.find(pat) {
+        None => None,
+        Some(n) => {
+            let (a, b) = source.split_at(n);
+
+            Some((a.to_string(), b.to_string()))
+        }
+    };
+}
+

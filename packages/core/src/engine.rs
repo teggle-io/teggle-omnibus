@@ -1,19 +1,17 @@
 extern crate zip_module_resolver;
 
 use std::cell::RefCell;
-use std::io::Read;
 use std::rc::Rc;
 
-use cosmwasm_std::{Api, debug_print, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage};
-use flate2::read::GzDecoder;
+use cosmwasm_std::{Api, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage};
+#[cfg(feature = "debug-print")]
+use cosmwasm_std::{debug_print};
 use rhai::{AST, Dynamic, Engine, EvalAltResult, ImmutableString, Module, Scope, ScriptFnDef, Shared};
 use rhai::packages::Package;
-use zip_module_resolver::{RHAI_EXTENSION, ZipModuleResolver};
+use zip_module_resolver::{ZipModuleResolver};
+
 use crate::CortexConfig;
-
 use crate::rhai::packages::pkg_std::StandardPackage;
-
-pub const MAIN_FILE: &'static str = "main";
 
 pub const ENDPOINT_FN_DEPLOY: &'static str = "deploy";
 pub const ENDPOINT_FN_HANDLE: &'static str = "handle";
@@ -67,7 +65,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     }
 
     #[inline(always)]
-    pub fn register_components(&mut self) -> &mut Self  {
+    pub fn register_components(&mut self) -> &mut Self {
         self.register_handlers()
             .register_functions()
     }
@@ -156,109 +154,62 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 
     #[inline(always)]
     pub fn loaded_core(&mut self) -> bool {
-        self.rh_resolver.borrow().is_some()
-    }
-
-    #[inline(always)]
-    pub fn loaded_ast(&mut self) -> bool {
-        self.rh_ast.is_some()
+        self.rh_resolver.borrow().is_some() && self.rh_ast.is_some()
     }
 
     pub fn load_core(&mut self, bytes: Vec<u8>) -> Result<(), StdError> {
         let mut resolver = ZipModuleResolver::new();
-        resolver.load_from_bytes_and_init(bytes).map_err(|err| {
-            return StdError::GenericErr {
-                msg: format!("failed to load core: {err}"),
-                backtrace: None,
-            };
-        })?;
-
-        self.rh_resolver = RefCell::new(Some(resolver.clone()));
-        self.rh_engine.set_module_resolver(resolver);
-
-        self.load_config()?;
-        self.register_components();
-        self.load_main()?;
-
-        Ok(())
-    }
-
-    pub fn get_file(&mut self, path: &str, custom_extension: Option<String>) -> Result<String, StdError> {
-        if !self.loaded_core() {
-            return Err(StdError::GenericErr {
-                msg: format!("can not 'get_file' without a core loaded (attempting to load '{}.{}')",
-                             path, custom_extension
-                                 .unwrap_or(RHAI_EXTENSION.to_string())),
-                backtrace: None,
-            });
-        }
-
-        let mut rc_resolver = RefCell::borrow_mut(&self.rh_resolver);
-        let resolver = rc_resolver.as_mut().unwrap();
-
-        let full_path = resolver.get_file_path(path, None,
-                                               custom_extension.to_owned());
-        let source = resolver.get_file(full_path)
+        resolver.load_from_bytes(bytes)
             .map_err(|err| {
                 return StdError::GenericErr {
-                    msg: format!("failed to load file '{}.{}': {err}",
-                                 path, custom_extension
-                                     .unwrap_or(RHAI_EXTENSION.to_string())),
+                    msg: format!("failed to load core: {err}"),
                     backtrace: None,
                 };
             })?;
 
-        Ok(source)
+        self.rh_resolver = RefCell::new(Some(resolver.clone()));
+        self.rh_engine.set_module_resolver(resolver);
+
+        self.init_core()?;
+
+        Ok(())
     }
 
-    #[inline]
-    pub fn load_script(&mut self, path: &str) -> Result<(), StdError> {
-        if !self.loaded_core() {
-            return Err(StdError::GenericErr {
-                msg: format!("can not 'load_script' without a core loaded."),
-                backtrace: None,
-            });
+    pub fn init_core(&mut self) -> Result<(), StdError> {
+        {
+            let mut rc_resolver = RefCell::borrow_mut(&self.rh_resolver);
+            let resolver = rc_resolver.as_mut().unwrap();
+
+            // TODO: Abstract.
+            let mut scope = Scope::new();
+            scope.push_constant("ENV", false);
+
+            let ast_res = resolver.init_with_scope(&self.rh_engine, scope)
+                .map_err(|err| {
+                    return StdError::GenericErr {
+                        msg: format!("failed to init core: {err}"),
+                        backtrace: None,
+                    };
+                })?;
+            match ast_res {
+                None => {
+                    return Err(StdError::GenericErr {
+                        msg: format!("failed to compile core, no AST returned."),
+                        backtrace: None,
+                    });
+                }
+                Some(ast) => {
+                    if self.rh_ast.is_some() {
+                        self.rh_ast = Some(self.rh_ast.as_mut().unwrap().merge(&ast));
+                    } else {
+                        self.rh_ast = Some(ast);
+                    }
+                }
+            }
         }
 
-        let source = self.get_file(path, None)?;
-
-        self.load_script_raw(source.as_str())
-    }
-
-    #[inline(always)]
-    pub fn load_main(&mut self) -> Result<(), StdError> {
-        self.load_script(MAIN_FILE)
-    }
-
-    pub fn load_script_raw_compressed(&mut self, compressed_bytes: &[u8]) -> Result<(), StdError> {
-        let b = decompress_bytes(compressed_bytes)?;
-        let s = String::from_utf8(b).map_err(|err| {
-            return StdError::GenericErr {
-                msg: format!("failed convert rhai script binary to utf8 string: {err}"),
-                backtrace: None,
-            };
-        })?;
-
-        self.load_script_raw(String::as_str(&s))
-    }
-
-    pub fn load_script_raw(&mut self, script: &str) -> Result<(), StdError> {
-        // TODO: Abstract.
-        let mut scope = Scope::new();
-        scope.push_constant("ENV", false);
-
-        let ast: AST = self.rh_engine.compile_with_scope(&scope, script).map_err(|err| {
-            return StdError::GenericErr {
-                msg: format!("failed to compile rhai script: {err}"),
-                backtrace: None,
-            };
-        })?;
-
-        if self.rh_ast.is_some() {
-            self.rh_ast.as_mut().unwrap().combine(ast.to_owned());
-        } else {
-            self.rh_ast = Some(ast);
-        }
+        self.load_config()?;
+        self.register_components();
 
         Ok(())
     }
@@ -288,9 +239,9 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     }
 
     pub fn validate(&mut self) -> Result<(), StdError> {
-        if !self.loaded_ast() {
+        if !self.loaded_core() {
             return Err(StdError::GenericErr {
-                msg: format!("cannot call 'validate' without a compiled script or core"),
+                msg: format!("cannot call 'validate' without a compiled core"),
                 backtrace: None,
             });
         }
@@ -310,10 +261,10 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         Ok(HandleResponse::default())
     }
 
-    pub fn run_handle(&mut self, env: Env) -> StdResult<HandleResponse> {
-        if !self.loaded_ast() {
+    pub fn run_handle(&mut self, _env: Env) -> StdResult<HandleResponse> {
+        if !self.loaded_core() {
             return Err(StdError::GenericErr {
-                msg: format!("cannot call 'run_handle' without a compiled script or core"),
+                msg: format!("cannot call 'run_handle' without a compiled core"),
                 backtrace: None,
             });
         }
@@ -336,8 +287,8 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         for _i in 0..1000 {
             self.rh_engine.call_fn_raw(&mut scope, &ast, false, true,
                                        "simple", None, &mut args).map_err(|err| {
-            //let _res = self.rh_engine.call_fn(&mut scope, &opt_ast,
-            //                                  "simple", ()).map_err(|err| {
+                //let _res = self.rh_engine.call_fn(&mut scope, &opt_ast,
+                //                                  "simple", ()).map_err(|err| {
                 return StdError::GenericErr {
                     msg: format!("failed to run 'handle' on rhai script: {err}"),
                     backtrace: None,
@@ -355,7 +306,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 // TODO: Move
 fn expand_key_path(key_path: &mut Vec<Dynamic>) -> Result<String, String> {
     if key_path.is_empty() {
-       return Err("key path is required.")?;
+        return Err("key path is required.")?;
     }
 
     let mut buf = String::new();
@@ -365,8 +316,8 @@ fn expand_key_path(key_path: &mut Vec<Dynamic>) -> Result<String, String> {
         match key.read_lock::<ImmutableString>() {
             None => {
                 return Err("keys must all be String.");
-            },
-            Some(v) => buf.push_str(v.as_str() )
+            }
+            Some(v) => buf.push_str(v.as_str())
         };
 
         Ok(())
@@ -391,23 +342,4 @@ fn validate_endpoint_method(lib: &Shared<Module>,
             Ok(())
         }
     };
-}
-
-
-// Compression
-
-fn decompress_bytes(compressed_bytes: &[u8]) -> Result<Vec<u8>, StdError> {
-    let mut decoder = GzDecoder::new(compressed_bytes);
-    let mut buf: Vec<u8> = Vec::new();
-
-    let res = decoder.read_to_end(&mut buf).map_err(|err| {
-        return StdError::GenericErr {
-            msg: format!("failed to deflate rhai script: {err}"),
-            backtrace: None,
-        };
-    })?;
-
-    debug_print!("deflated rhai script ({} bytes)", res);
-
-    return Ok(buf);
 }
