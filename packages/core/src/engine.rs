@@ -21,6 +21,8 @@ pub const ENDPOINT_METHODS: &'static [&'static str] = &[ENDPOINT_FN_DEPLOY, ENDP
 
 pub struct OmnibusEngine<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> {
     rh_engine: Engine,
+    rh_caches: Option<Caches>,
+    rh_global: Option<GlobalRuntimeState<'static>>,
     rh_resolver: RefCell<Option<ZipModuleResolver>>,
     rh_ast: Option<AST>,
     deps: Rc<RefCell<Extern<S, A, Q>>>,
@@ -46,6 +48,8 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     ) -> Self {
         Self {
             rh_engine: Engine::new_raw(),
+            rh_caches: None,
+            rh_global: None,
             rh_resolver: RefCell::new(None),
             rh_ast: None,
             deps,
@@ -153,10 +157,13 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 
     #[inline(always)]
     pub fn loaded_core(&mut self) -> bool {
-        self.rh_resolver.borrow().is_some() && self.rh_ast.is_some()
+        self.rh_resolver.borrow().is_some()
+            && self.rh_ast.is_some()
+            && self.rh_caches.is_some()
+            && self.rh_global.is_some()
     }
 
-    pub fn load_core(&mut self, bytes: Vec<u8>) -> Result<(), StdError> {
+    pub fn load_core(&mut self, bytes: Vec<u8>, env: Env) -> Result<(), StdError> {
         let mut resolver = ZipModuleResolver::new();
         resolver.load_from_bytes(bytes)
             .map_err(|err| {
@@ -169,19 +176,19 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         self.rh_resolver = RefCell::new(Some(resolver.clone()));
         self.rh_engine.set_module_resolver(resolver);
 
-        self.init_core()?;
+        self.init_core(env)?;
 
         Ok(())
     }
 
-    pub fn init_core(&mut self) -> Result<(), StdError> {
+    pub fn init_core(&mut self, env: Env) -> Result<(), StdError> {
         {
             let mut rc_resolver = RefCell::borrow_mut(&self.rh_resolver);
             let resolver = rc_resolver.as_mut().unwrap();
 
             // TODO: Abstract (this is a mess, and will change a lot).
             let mut scope = Scope::new();
-            scope.push_constant("ENV", false);
+            scope.push_constant("ENV", env);
 
             let ast_res = resolver.init_with_scope(&self.rh_engine, scope)
                 .map_err(|err| {
@@ -208,19 +215,47 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         }
 
         self.load_config()?;
-        self.register_components();
+        self.register_components(); // Must go after load_config to apply the label.
+        self.warm_ast()?;
+
+        Ok(())
+    }
+
+    pub fn warm_ast(&mut self) -> Result<(), StdError> {
+        let mut rc_resolver = RefCell::borrow_mut(&self.rh_resolver);
+        let resolver = rc_resolver.as_mut().unwrap();
+
+        let ast = self.rh_ast.as_mut().unwrap();
+        let mut scope = resolver.scope().clone();
+
+        let mut caches = Caches::new();
+        let mut global = GlobalRuntimeState::new(&self.rh_engine);
+
+        let rewind_scope = true;
+        let statements = ast.statements();
+        let orig_scope_len = scope.len();
+
+        if !statements.is_empty() {
+            self.rh_engine.eval_statements_raw(&mut scope, &mut global, &mut caches, statements, &[ast.as_ref()], 0)
+                .map_err(|err| {
+                    return StdError::GenericErr {
+                        msg: format!("failed to 'eval_statements_raw' during init of core: {err}"),
+                        backtrace: None,
+                    };
+                })?;
+
+            if rewind_scope {
+                scope.rewind(orig_scope_len);
+            }
+        }
+
+        self.rh_caches = Some(caches);
+        self.rh_global = Some(global);
 
         Ok(())
     }
 
     pub fn load_config(&mut self) -> Result<(), StdError> {
-        if !self.loaded_core() {
-            return Err(StdError::GenericErr {
-                msg: format!("can not 'load_config' without a core loaded"),
-                backtrace: None,
-            });
-        }
-
         let mut rc_resolver = RefCell::borrow_mut(&self.rh_resolver);
         let resolver = rc_resolver.as_mut().unwrap();
 
@@ -255,12 +290,12 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         Ok(())
     }
 
-    pub fn run_deploy(&mut self, _env: Env) -> StdResult<HandleResponse> {
+    pub fn run_deploy(&mut self) -> StdResult<HandleResponse> {
         // TODO:
         Ok(HandleResponse::default())
     }
 
-    pub fn run_handle(&mut self, env: Env) -> StdResult<HandleResponse> {
+    pub fn run_handle(&mut self) -> StdResult<HandleResponse> {
         if !self.loaded_core() {
             return Err(StdError::GenericErr {
                 msg: format!("cannot call 'run_handle' without a compiled core"),
@@ -271,40 +306,19 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         let rc_resolver = RefCell::borrow_mut(&self.rh_resolver);
         let resolver = rc_resolver.as_ref().unwrap();
 
+        let caches = self.rh_caches.as_mut().unwrap();
+        let global = self.rh_global.as_mut().unwrap();
         let ast = self.rh_ast.as_mut().unwrap();
         let mut scope = resolver.scope().clone();
 
-        scope.push_constant("ENV", env);
+        // no affect, needs to be set before globals.
+        //scope.push_constant("ENV", "dffs");
 
         let mut args: [Dynamic; 0] = [];
 
-        // Using this custom setup enables calling rhai methods at the same cost as if it was pure rhai calling them.
-        // TLDR; 25% performance improvement.
-
-        let rewind_scope = true;
-        let caches = &mut Caches::new();
-        let global = &mut GlobalRuntimeState::new(&self.rh_engine);
-
-        let statements = ast.statements();
-        let orig_scope_len = scope.len();
-
-        if !statements.is_empty() {
-            self.rh_engine.eval_statements_raw(&mut scope, global, caches, statements, &[ast.as_ref()], 0)
-                .map_err(|err| {
-                    return StdError::GenericErr {
-                        msg: format!("failed to 'eval_global_statements' during run of 'handle' on rhai script: {err}"),
-                        backtrace: None,
-                    };
-                })?;
-
-            if rewind_scope {
-                scope.rewind(orig_scope_len);
-            }
-        }
-
-        for _i in 0..1000_i32 {
+        for _ in 0..1000_i32 {
             self.rh_engine.call_fn_raw_raw(&mut scope, global, caches, &ast, false,
-                                           rewind_scope, "simple", None, &mut args, )
+                                           true, "simple", None, &mut args, )
                 .map_err(|err| {
                     return StdError::GenericErr {
                         msg: format!("failed to run 'handle' on rhai script: {err}"),

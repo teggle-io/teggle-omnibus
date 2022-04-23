@@ -10,9 +10,9 @@ pub fn deploy<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier>(
     data: Vec<u8>,
 ) -> StdResult<HandleResponse> {
     let mut engine = OmnibusEngine::new(deps);
-    engine.load_core(data)?;
+    engine.load_core(data, env)?;
     engine.validate()?;
-    engine.run_deploy(env)
+    engine.run_deploy()
 }
 
 pub fn handle<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier>(
@@ -21,6 +21,6 @@ pub fn handle<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier>(
     data: Vec<u8>,
 ) -> StdResult<HandleResponse> {
     let mut engine = OmnibusEngine::new(deps);
-    engine.load_core(data)?;
-    engine.run_handle(env)
+    engine.load_core(data, env)?;
+    engine.run_handle()
 }
