@@ -606,7 +606,13 @@ fn split_source_const(source: &String) -> Option<(String, String)> {
                 None => None,
                 Some((before_const, consts)) => {
                     let mut full_body = before_const.clone();
-                    full_body.push_str(body.as_str());
+                    if !body.is_empty() {
+                        if !full_body.is_empty() {
+                            full_body.push_str("\n");
+                        }
+
+                        full_body.push_str(body.as_str());
+                    }
 
                     Some((consts, full_body))
                 }
