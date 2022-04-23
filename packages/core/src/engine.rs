@@ -58,8 +58,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     #[inline(always)]
     pub fn default_init(&mut self) -> &mut Self {
         self.register_modules();
-        // TODO: Turn on.
-        //self.rh_engine.set_strict_variables(true);
+        self.rh_engine.set_strict_variables(true);
 
         self
     }
@@ -116,7 +115,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     }
 
     pub fn register_functions(&mut self) -> &mut Self {
-        // TODO:
+        // TODO: This is a mess and will change a lot (this is just for testing).
         let deps = self.deps.clone();
         self.rh_engine.register_fn("storage_set", move |key: &str, val: &str| {
             RefCell::borrow_mut(&*deps).storage.set(key.as_bytes(), val.as_bytes());
@@ -180,7 +179,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
             let mut rc_resolver = RefCell::borrow_mut(&self.rh_resolver);
             let resolver = rc_resolver.as_mut().unwrap();
 
-            // TODO: Abstract.
+            // TODO: Abstract (this is a mess, and will change a lot).
             let mut scope = Scope::new();
             scope.push_constant("ENV", false);
 
@@ -279,34 +278,40 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
 
         let mut args: [Dynamic; 0] = [];
 
-        // TESTING: BEGIN
+        // Using this custom setup enables calling rhai methods at the same cost as if it was pure rhai calling them.
+        // TLDR; 25% performance improvement.
+
+        let rewind_scope = true;
         let caches = &mut Caches::new();
-        let global = &mut GlobalRuntimeState::new(self);
+        let global = &mut GlobalRuntimeState::new(&self.rh_engine);
 
         let statements = ast.statements();
-
         let orig_scope_len = scope.len();
 
-        if eval_ast && !statements.is_empty() {
-            self.rh_engine.eval_global_statements(&mut scope, global, caches, statements, &[ast.as_ref()], 0)?;
+        if !statements.is_empty() {
+            self.rh_engine.eval_global_statements(&mut scope, global, caches, statements, &[ast.as_ref()], 0)
+                .map_err(|err| {
+                    return StdError::GenericErr {
+                        msg: format!("failed to 'eval_global_statements' during run of 'handle' on rhai script: {err}"),
+                        backtrace: None,
+                    };
+                })?;
 
             if rewind_scope {
                 scope.rewind(orig_scope_len);
             }
         }
-        // TESTING: END
 
-        /*
-        for _i in 0..1000_i32 {
-            self.rh_engine.call_fn_raw(&mut scope, &ast, true, true,
-                                       "simple", None, &mut args).map_err(|err| {
-                return StdError::GenericErr {
-                    msg: format!("failed to run 'handle' on rhai script: {err}"),
-                    backtrace: None,
-                };
-            })?;
-        }
-         */
+        //for _i in 0..1000_i32 {
+            self.rh_engine.call_fn_raw_with_globals(&mut scope, &ast, rewind_scope,
+                                       "handle", None, &mut args, caches, global)
+                .map_err(|err| {
+                    return StdError::GenericErr {
+                        msg: format!("failed to run 'handle' on rhai script: {err}"),
+                        backtrace: None,
+                    };
+                })?;
+        //}
 
         Ok(HandleResponse::default())
     }

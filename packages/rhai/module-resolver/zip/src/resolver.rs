@@ -360,8 +360,8 @@ impl ZipModuleResolver {
                 })?))
             }
             Some((consts, body)) => {
-                // Load const into scope and discard AST.
                 if !consts.is_empty() {
+                    // Load const into scope and discard AST.
                     engine.eval_with_scope(scope, &consts).map_err(|err| {
                         ResolverError::EvalError(*err)
                     })?;

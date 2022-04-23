@@ -27,5 +27,5 @@ path = "../rhai/module-resolver/zip"
 [dependencies.rhai]
 #version = "1.6.1"
 #git = "https://github.com/schungx/rhai"
-features = [ "only_i32", "no_float", "no_position", "no_closure", "unchecked", "internals" ]
+features = [ "only_i32", "no_float", "no_position", "no_closure", "unchecked", "internals", "globals" ]
 path = "../../../rhai"
