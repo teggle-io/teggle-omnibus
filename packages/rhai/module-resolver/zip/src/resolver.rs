@@ -9,6 +9,7 @@ use cfg_if::cfg_if;
 use rhai::{AST, Engine, EvalAltResult, GlobalRuntimeState, Locked, Map, Module, ModuleResolver, Position, Scope, Shared};
 use zip::ZipArchive;
 
+#[cfg(feature = "json_config")]
 use crate::config::Config;
 use crate::result::{map_resolver_err_to_eval_err, ResolverError, ResolverResult};
 
