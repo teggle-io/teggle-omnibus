@@ -316,7 +316,7 @@ impl ZipModuleResolver {
     #[inline(always)]
     pub fn get_source_path(&self, path: &str, source_path: Option<&str>) -> PathBuf {
         self.get_file_path(path, source_path,
-                              Some(RHAI_EXTENSION.to_string()))
+                           Some(RHAI_EXTENSION.to_string()))
     }
 
     #[inline]
@@ -359,7 +359,7 @@ impl ZipModuleResolver {
                     ResolverError::ParseError(err)
                 })?))
             }
-            Some((consts, body)) => {
+            Some((preamble, consts, body)) => {
                 if !consts.is_empty() {
                     // Load const into scope and discard AST.
                     engine.eval_with_scope(scope, &consts).map_err(|err| {
@@ -367,9 +367,9 @@ impl ZipModuleResolver {
                     })?;
                 }
 
-                if !body.is_empty() {
+                if !body.is_empty() || !preamble.is_empty() {
                     // Compile main body as AST.
-                    return Ok(Some(engine.compile_with_scope(scope, &body).map_err(|err| {
+                    return Ok(Some(engine.compile_scripts_with_scope(scope, [&preamble, &body]).map_err(|err| {
                         ResolverError::ParseError(err)
                     })?));
                 }
@@ -405,7 +405,7 @@ impl ZipModuleResolver {
                 let mut ast: Option<AST> = None;
                 for name in entrypoints {
                     let cur_ast = self.compile_path_with_scope(name, &mut scope,
-                                                          engine)?;
+                                                               engine)?;
                     if cur_ast.is_some() {
                         if ast.is_some() {
                             ast = Some(ast.unwrap().merge(&cur_ast.unwrap()));
@@ -469,8 +469,8 @@ impl ZipModuleResolver {
         if ast.is_none() {
             return Err(Box::new(
                 EvalAltResult::ErrorInModule(path.to_string(),
-                                         Box::new(map_resolver_err_to_eval_err(
-                                             ResolverError::NoAstProduced)), pos)));
+                                             Box::new(map_resolver_err_to_eval_err(
+                                                 ResolverError::NoAstProduced)), pos)));
         }
         let mut ast = ast.unwrap();
 
@@ -591,30 +591,23 @@ pub fn locked_write<T>(value: &Locked<T>) -> LockGuardMut<T> {
 }
 
 // Source
-fn split_source_const(source: &String) -> Option<(String, String)> {
+fn split_source_const(source: &str) -> Option<(&str, &str, &str)> {
     return match split_source(source, "fn ") {
         None => {
             match split_source(source, "const ") {
                 None => None,
                 Some((before_const, consts)) => {
-                    Some((consts, before_const))
+                    Some((before_const, consts, ""))
                 }
             }
-        },
+        }
         Some((preamble, body)) => {
             match split_source(&preamble, "const ") {
-                None => None,
+                None => {
+                    Some((preamble, "", body))
+                }
                 Some((before_const, consts)) => {
-                    let mut full_body = before_const.clone();
-                    if !body.is_empty() {
-                        if !full_body.is_empty() {
-                            full_body.push_str("\n");
-                        }
-
-                        full_body.push_str(body.as_str());
-                    }
-
-                    Some((consts, full_body))
+                    Some((before_const, consts, body))
                 }
             }
         }
@@ -622,14 +615,13 @@ fn split_source_const(source: &String) -> Option<(String, String)> {
 }
 
 #[inline(always)]
-fn split_source(source: &String, pat: &str) -> Option<(String, String)> {
+fn split_source<'a>(source: &'a str, pat: &str) -> Option<(&'a str, &'a str)> {
     return match source.find(pat) {
         None => None,
         Some(n) => {
-            let (a, b) = source.split_at(n);
-
-            Some((a.trim().to_string(), b.trim().to_string()))
+            match source.split_at(n) {
+                (a, b) => Some((a.trim(), b.trim()))
+            }
         }
     };
 }
-

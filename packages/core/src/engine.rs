@@ -289,7 +289,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         let orig_scope_len = scope.len();
 
         if !statements.is_empty() {
-            self.rh_engine.eval_global_statements(&mut scope, global, caches, statements, &[ast.as_ref()], 0)
+            self.rh_engine.eval_statements_raw(&mut scope, global, caches, statements, &[ast.as_ref()], 0)
                 .map_err(|err| {
                     return StdError::GenericErr {
                         msg: format!("failed to 'eval_global_statements' during run of 'handle' on rhai script: {err}"),
@@ -302,16 +302,16 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
             }
         }
 
-        //for _i in 0..1000_i32 {
-            self.rh_engine.call_fn_raw_with_globals(&mut scope, &ast, rewind_scope,
-                                       "handle", None, &mut args, caches, global)
+        for _i in 0..1000_i32 {
+            self.rh_engine.call_fn_raw_raw(&mut scope, global, caches, &ast, false,
+                                           rewind_scope, "simple", None, &mut args, )
                 .map_err(|err| {
                     return StdError::GenericErr {
                         msg: format!("failed to run 'handle' on rhai script: {err}"),
                         backtrace: None,
                     };
                 })?;
-        //}
+        }
 
         Ok(HandleResponse::default())
     }
