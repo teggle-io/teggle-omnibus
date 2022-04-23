@@ -17,9 +17,6 @@ debug-print = ["cosmwasm-std/debug-print"]
 test-print = []
 
 [dependencies]
-serde-json-wasm = { version = "0.2.1" }
-serde = { version = "1.0.117", default-features = false, features = ["derive", "alloc"] }
-flate2 = "1.0.23"
 cosmwasm-std = { version = "0.10", package = "teggle-cosmwasm-std", features = ["rc-deps"], path = "../cosmwasm/std" }
 
 [dependencies.zip-module-resolver]
@@ -29,6 +26,6 @@ path = "../rhai/module-resolver/zip"
 
 [dependencies.rhai]
 #version = "1.6.1"
-git = "https://github.com/schungx/rhai"
+#git = "https://github.com/schungx/rhai"
 features = [ "only_i32", "no_float", "no_position", "no_closure", "unchecked", "internals" ]
-#path = "../../../rhai"
+path = "../../../rhai"

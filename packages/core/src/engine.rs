@@ -6,7 +6,7 @@ use std::rc::Rc;
 use cosmwasm_std::{Api, Env, Extern, HandleResponse, Querier, StdError, StdResult, Storage};
 #[cfg(feature = "debug-print")]
 use cosmwasm_std::{debug_print};
-use rhai::{AST, Dynamic, Engine, EvalAltResult, ImmutableString, Module, Scope, ScriptFnDef, Shared};
+use rhai::{AST, Caches, Dynamic, Engine, EvalAltResult, GlobalRuntimeState, ImmutableString, Module, Scope, ScriptFnDef, Shared};
 use rhai::packages::Package;
 use zip_module_resolver::{ZipModuleResolver};
 
@@ -58,8 +58,8 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
     #[inline(always)]
     pub fn default_init(&mut self) -> &mut Self {
         self.register_modules();
-        self.rh_engine.set_strict_variables(true);
-        //self.rh_engine.set_optimization_level(OptimizationLevel::None);
+        // TODO: Turn on.
+        //self.rh_engine.set_strict_variables(true);
 
         self
     }
@@ -261,7 +261,7 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
         Ok(HandleResponse::default())
     }
 
-    pub fn run_handle(&mut self, _env: Env) -> StdResult<HandleResponse> {
+    pub fn run_handle(&mut self, env: Env) -> StdResult<HandleResponse> {
         if !self.loaded_core() {
             return Err(StdError::GenericErr {
                 msg: format!("cannot call 'run_handle' without a compiled core"),
@@ -269,32 +269,44 @@ impl<S: 'static + Storage, A: 'static + Api, Q: 'static + Querier> OmnibusEngine
             });
         }
 
+        let rc_resolver = RefCell::borrow_mut(&self.rh_resolver);
+        let resolver = rc_resolver.as_ref().unwrap();
+
         let ast = self.rh_ast.as_mut().unwrap();
-        let mut scope = Scope::new();
+        let mut scope = resolver.scope().clone();
 
-        //scope.push_constant("ENV", env);
-        //scope.push("my_string", "hello, world!");
-        //scope.push_constant("MY_CONST", true);
-
-        // Re-optimize the AST
-        //let opt_ast = self.rh_engine.optimize_ast(&scope, ast.clone(),
-        //                                          OptimizationLevel::Simple);
+        scope.push_constant("ENV", env);
 
         let mut args: [Dynamic; 0] = [];
 
-        println!("statements: {}", ast.statements().len());
+        // TESTING: BEGIN
+        let caches = &mut Caches::new();
+        let global = &mut GlobalRuntimeState::new(self);
 
-        for _i in 0..1000 {
+        let statements = ast.statements();
+
+        let orig_scope_len = scope.len();
+
+        if eval_ast && !statements.is_empty() {
+            self.rh_engine.eval_global_statements(&mut scope, global, caches, statements, &[ast.as_ref()], 0)?;
+
+            if rewind_scope {
+                scope.rewind(orig_scope_len);
+            }
+        }
+        // TESTING: END
+
+        /*
+        for _i in 0..1000_i32 {
             self.rh_engine.call_fn_raw(&mut scope, &ast, true, true,
                                        "simple", None, &mut args).map_err(|err| {
-                //let _res = self.rh_engine.call_fn(&mut scope, &opt_ast,
-                //                                  "simple", ()).map_err(|err| {
                 return StdError::GenericErr {
                     msg: format!("failed to run 'handle' on rhai script: {err}"),
                     backtrace: None,
                 };
             })?;
         }
+         */
 
         Ok(HandleResponse::default())
     }

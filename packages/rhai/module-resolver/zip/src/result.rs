@@ -16,6 +16,9 @@ pub enum ResolverError {
     /// The requested file could not be read from the archive
     FileReadFailed(std::io::Error),
 
+    /// No AST was produced by the compile target
+    NoAstProduced,
+
     /// The requested json file could not be parsed
     JsonParseFailed(String),
 
@@ -28,6 +31,7 @@ pub enum ResolverError {
     /// Wrapped EvalAltResult
     EvalError(EvalAltResult),
 
+
     /// Not ready (not loaded or prepared)
     NotReady
 }
@@ -38,6 +42,7 @@ impl fmt::Display for ResolverError {
             ResolverError::InvalidZip(err) => write!(fmt, "invalid resolver Zip: {}", err),
             ResolverError::FileNotFound => write!(fmt, "specified file not found in resolver archive"),
             ResolverError::FileReadFailed(err) => write!(fmt, "file read failed: {}", err),
+            ResolverError::NoAstProduced => write!(fmt, "no AST produced (is the file empty?)"),
             ResolverError::JsonParseFailed(err) => write!(fmt, "json file parse failed: {}", err),
             ResolverError::SourceCompileFailed(s, err) if s.is_empty() => write!(fmt, "compile failed: {}", err),
             ResolverError::SourceCompileFailed(s, err) => write!(fmt, "compile of '{}' failed: {}", s, err),

@@ -16,9 +16,9 @@ json_config = []
 cfg-if = "1.0.0"
 
 [dependencies.rhai]
-git = "https://github.com/schungx/rhai"
+#git = "https://github.com/schungx/rhai"
 #version = "1.6.1"
-#path = "../../../../../rhai"
+path = "../../../../../rhai"
 
 [dependencies.zip]
 version = "0.6.2"

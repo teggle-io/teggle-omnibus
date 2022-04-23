@@ -244,7 +244,6 @@ impl ZipModuleResolver {
         let file_path = self.get_file_path(path.as_ref(),
                                            source_path.as_ref().map(<_>::as_ref),
                                            None);
-
         locked_write(&self.cache)
             .remove_entry(&file_path)
             .map(|(.., v)| v)
@@ -346,36 +345,42 @@ impl ZipModuleResolver {
     }
 
     #[inline(always)]
-    pub fn compile(&self, engine: &Engine, source: String) -> ResolverResult<AST> {
+    pub fn compile(&self, engine: &Engine, source: String) -> ResolverResult<Option<AST>> {
         let mut scope = Scope::new();
 
         self.compile_with_scope(&mut scope, engine, source)
     }
 
     pub fn compile_with_scope(&self, scope: &mut Scope, engine: &Engine,
-                              source: String) -> ResolverResult<AST> {
+                              source: String) -> ResolverResult<Option<AST>> {
         return match split_source_const(&source) {
             None => {
-                engine.compile_with_scope(scope, &source).map_err(|err| {
+                Ok(Some(engine.compile_with_scope(scope, &source).map_err(|err| {
                     ResolverError::ParseError(err)
-                })
+                })?))
             }
             Some((consts, body)) => {
                 // Load const into scope and discard AST.
-                engine.eval_with_scope(scope, &consts).map_err(|err| {
-                    ResolverError::EvalError(*err)
-                })?;
+                if !consts.is_empty() {
+                    engine.eval_with_scope(scope, &consts).map_err(|err| {
+                        ResolverError::EvalError(*err)
+                    })?;
+                }
 
-                // Compile main body as AST.
-                engine.compile_with_scope(scope, &body).map_err(|err| {
-                    ResolverError::ParseError(err)
-                })
+                if !body.is_empty() {
+                    // Compile main body as AST.
+                    return Ok(Some(engine.compile_with_scope(scope, &body).map_err(|err| {
+                        ResolverError::ParseError(err)
+                    })?));
+                }
+
+                Ok(None)
             }
         };
     }
 
     pub fn compile_path_with_scope(&self, path: String, scope: &mut Scope,
-                                   engine: &Engine) -> ResolverResult<AST> {
+                                   engine: &Engine) -> ResolverResult<Option<AST>> {
         let source_path = self.get_source_path(path.as_str(), None);
 
         let source = self.get_file(source_path.clone())?;
@@ -401,10 +406,12 @@ impl ZipModuleResolver {
                 for name in entrypoints {
                     let cur_ast = self.compile_path_with_scope(name, &mut scope,
                                                           engine)?;
-                    if ast.is_some() {
-                        ast = Some(ast.unwrap().merge(&cur_ast));
-                    } else {
-                        ast = Some(cur_ast);
+                    if cur_ast.is_some() {
+                        if ast.is_some() {
+                            ast = Some(ast.unwrap().merge(&cur_ast.unwrap()));
+                        } else {
+                            ast = Some(cur_ast.unwrap());
+                        }
                     }
                 }
 
@@ -454,11 +461,18 @@ impl ZipModuleResolver {
         // Clone to avoid importing any module consts.
         let mut scope = self.scope.clone();
 
-        let mut ast = self.compile_with_scope(&mut scope, engine, script)
+        let ast = self.compile_with_scope(&mut scope, engine, script)
             .map_err(|err| {
                 EvalAltResult::ErrorInModule(path.to_string(),
                                              Box::new(map_resolver_err_to_eval_err(err)), pos)
             })?;
+        if ast.is_none() {
+            return Err(Box::new(
+                EvalAltResult::ErrorInModule(path.to_string(),
+                                         Box::new(map_resolver_err_to_eval_err(
+                                             ResolverError::NoAstProduced)), pos)));
+        }
+        let mut ast = ast.unwrap();
 
         ast.set_source(path);
 
@@ -608,7 +622,7 @@ fn split_source(source: &String, pat: &str) -> Option<(String, String)> {
         Some(n) => {
             let (a, b) = source.split_at(n);
 
-            Some((a.to_string(), b.to_string()))
+            Some((a.trim().to_string(), b.trim().to_string()))
         }
     };
 }
